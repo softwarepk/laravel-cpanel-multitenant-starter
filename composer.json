@@ -1,0 +1,93 @@
+{
+  "$schema": "https://getcomposer.org/schema.json",
+  "name": "softwarepk/laravel-cpanel-multitenant-starter",
+  "type": "project",
+  "description": "A reusable Laravel starter for building strongly isolated multi-tenant applications on cPanel/Linux hosting.",
+  "keywords": ["laravel", "livewire", "flux", "cpanel", "starter", "multitenancy", "stancl"],
+  "license": "MIT",
+  "require": {
+    "php": "^8.3",
+    "laravel/chisel": "^0.1.0",
+    "laravel/fortify": "^1.37.2",
+    "laravel/framework": "^13.17",
+    "laravel/tinker": "^3.0",
+    "livewire/blaze": "^1.0",
+    "livewire/flux": "^2.13.1",
+    "livewire/livewire": "^4.1",
+    "stancl/tenancy": "3.10"
+  },
+  "require-dev": {
+    "fakerphp/faker": "^1.24",
+    "larastan/larastan": "^3.9",
+    "laravel/boost": "^2.2",
+    "laravel/pail": "^1.2.5",
+    "laravel/pao": "^1.0.6",
+    "laravel/pint": "^1.27",
+    "mockery/mockery": "^1.6",
+    "nunomaduro/collision": "^8.9.3",
+    "pestphp/pest": "^5.1",
+    "pestphp/pest-plugin-laravel": "^5.0",
+    "rector/rector": "^2.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "app/",
+      "Database\\Factories\\": "database/factories/",
+      "Database\\Seeders\\": "database/seeders/"
+    }
+  },
+  "autoload-dev": {"psr-4": {"Tests\\": "tests/"}},
+  "scripts": {
+    "setup": [
+      "composer install",
+      "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+      "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
+      "@php artisan key:generate",
+      "@php artisan starter:install",
+      "@php artisan migrate --force",
+      "npm ci",
+      "npm run build"
+    ],
+    "dev": [
+      "Composer\\Config::disableProcessTimeout",
+      "npx concurrently -c \"#93c5fd,#fdba74\" \"php artisan serve\" \"npm run dev\" --names='server,vite'"
+    ],
+    "lint": ["pint --parallel"],
+    "lint:check": ["pint --parallel --test"],
+    "types:check": ["phpstan analyse"],
+    "refactor": "rector process",
+    "refactor:check": "rector process --dry-run",
+    "fix": ["@refactor", "@lint", "@types:check"],
+    "ci:check": ["Composer\\Config::disableProcessTimeout", "@test"],
+    "test": [
+      "@php artisan config:clear --ansi",
+      "@php artisan view:clear --ansi",
+      "@lint:check",
+      "@types:check",
+      "@refactor:check",
+      "@php artisan test"
+    ],
+    "boost:install": "@php artisan boost:install --ansi",
+    "boost:update": "@php artisan boost:update --ansi",
+    "post-autoload-dump": [
+      "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+      "@php artisan package:discover --ansi"
+    ],
+    "post-update-cmd": ["@php artisan vendor:publish --tag=laravel-assets --ansi --force"],
+    "post-root-package-install": ["@php -r \"file_exists('.env') || copy('.env.example', '.env');\""],
+    "post-create-project-cmd": [
+      "@php artisan key:generate --ansi",
+      "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
+      "@php artisan starter:install",
+      "@php artisan migrate --graceful --ansi"
+    ]
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "preferred-install": "dist",
+    "sort-packages": true,
+    "allow-plugins": {"pestphp/pest-plugin": true, "php-http/discovery": true}
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
