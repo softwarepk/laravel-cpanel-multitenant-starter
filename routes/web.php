@@ -24,7 +24,7 @@ Route::prefix('central')
 
             Route::get('tenants', [CentralTenantPagesController::class, 'index'])->name('central.tenants.index');
             Route::get('tenants/create', [CentralTenantPagesController::class, 'create'])->name('central.tenants.create');
-            Route::post('tenants', [CentralTenantController::class, 'store'])->name('central.tenants.store');
+            Route::post('tenants', [CentralTenantController::class, 'store'])->middleware('cpanel.provisioning')->name('central.tenants.store');
             Route::get('tenants/provisioning/{tenantId}', [CentralTenantController::class, 'provisioningStatus'])->name('central.tenants.provisioning.status');
             Route::get('tenants/{tenant}', [CentralTenantPagesController::class, 'show'])->name('central.tenants.show');
             Route::delete('tenants/{tenant}', [CentralTenantLifecycleController::class, 'destroy'])->name('central.tenants.destroy');
