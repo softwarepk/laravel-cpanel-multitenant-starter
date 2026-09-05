@@ -35,7 +35,7 @@ return [
             'options' => extension_loaded('pdo_mysql') ? array_filter([Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA')]) : [],
         ],
         'tenant_template' => [
-            'driver' => env('TENANT_DB_DRIVER', 'mysql'),
+            'driver' => env('TENANT_DB_DRIVER', env('APP_ENV') === 'production' ? 'mysql' : 'sqlite'),
             'url' => null,
             'host' => env('TENANT_DB_HOST', '127.0.0.1'),
             'port' => env('TENANT_DB_PORT', '3306'),
