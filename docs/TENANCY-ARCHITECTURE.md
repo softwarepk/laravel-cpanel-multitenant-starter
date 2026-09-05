@@ -35,7 +35,7 @@ Typical tenant tables include:
 - application settings belonging to one organization;
 - customers, assets, tickets, orders, claims, documents, workflows, etc.;
 - project-specific authorization/relationship tables;
-- tenant-local cache/session tables when configured that way.
+- tenant-local cache/session tables.
 
 The same primary key can exist independently in different tenant databases without creating a collision.
 
@@ -55,6 +55,8 @@ request host
 ```
 
 The central hostname serves only the Control Center. Tenant application routes must not be reachable as an accidental fallback from the central hostname.
+
+Resolving the host before normal web/session handling is also why database-backed sessions are the default. A central request reads the central `sessions` table; a tenant request reads that tenant's `sessions` table. Do not change session storage to a shared backend without re-verifying this boundary.
 
 ## Identity model
 
@@ -102,11 +104,13 @@ Do not rely on developers manually prefixing every upload path with a tenant ide
 
 Shared application assets such as Vite build assets remain global/public and are not tenant-suffixed.
 
-## Cache and queue
+## Sessions, cache, and queue
 
-Tenant-originated cache data must not leak to another tenant. Tenant-originated queued work must retain the originating tenant key so workers can restore tenant context before executing application logic.
+Database-backed sessions and cache are the starter defaults. Both follow Laravel's active database connection, so after tenant initialization they use that tenant's local `sessions` and `cache` tables. Central requests remain on the central database.
 
-If a project changes the default cache/queue backend, tenant isolation must be re-verified for that backend.
+Queue infrastructure is intentionally different: the database queue remains central. The queue connection is pinned to the configured central connection while `stancl/tenancy` adds the originating tenant key to tenant-aware job payloads and restores tenant context when the worker executes the job. Tenant databases therefore do not need a `jobs` table.
+
+If a project changes session, cache, or queue backends, tenant isolation must be re-verified for the new backend rather than assuming the same guarantees carry over automatically.
 
 ## Migrations and deployment
 

@@ -20,6 +20,8 @@ This is a sibling of the single-organization starter, not a replacement for it.
 
 The central database must never contain project business data. New project tables normally belong in `database/migrations/tenant` unless they are truly platform-wide control-plane data.
 
+Database-backed sessions and cache are the defaults. Tenant resolution happens before those services are used, so central requests use central tables while tenant requests use the active tenant database. The database queue is deliberately central; `stancl/tenancy` records the originating tenant ID in tenant-aware payloads so workers can restore tenant context.
+
 ## Included control plane
 
 The starter intentionally carries forward the proven administrative decisions instead of redesigning them for each application:
@@ -42,7 +44,8 @@ Project-specific business modules should be added inside the tenant application,
 
 ## Stack
 
-- PHP 8.3+
+- PHP 8.3+ application runtime
+- PHP 8.4+ for the bundled development/test toolchain (Pest 5 and its Laravel plugin)
 - Laravel 13
 - Livewire 4
 - Flux UI 2
@@ -53,7 +56,7 @@ Project-specific business modules should be added inside the tenant application,
 
 ## Local first run
 
-The central application uses SQLite by default for local development. Production is intended for MySQL/MariaDB on cPanel.
+Use PHP 8.4 or newer for local development and tests. The central application uses SQLite by default for local development. Production is intended for MySQL/MariaDB on cPanel.
 
 ```bash
 composer install
@@ -80,6 +83,9 @@ Important concepts:
 - `TENANT_PLATFORM_DOMAIN` is the root under which permanent tenant hostnames are created, such as `tenant.example.com`.
 - `TENANT_PLATFORM_DOCUMENT_ROOT` points every tenant platform hostname at the same Laravel `public` directory.
 - tenant databases use the central cPanel account's configured tenant DB prefix and tenant DB user.
+- `SESSION_DRIVER=database` and `CACHE_STORE=database` preserve the central/tenant database boundary.
+- `QUEUE_CONNECTION=database` keeps queue rows centrally while preserving tenant context in job payloads.
+- forced HTTPS defaults on when `APP_ENV=production` unless explicitly overridden.
 
 Do not commit cPanel tokens or real credentials.
 
@@ -100,6 +106,8 @@ php artisan optimize
 Central migrations update the control plane. Tenant migrations update the application schema in every tenant database.
 
 When a new tenant is created through the Control Center, the provisioning workflow creates/confirms the platform hostname and database, applies tenant migrations, creates the initial tenant administrator, and waits for trusted HTTPS before activation.
+
+If the application dispatches asynchronous jobs, arrange a database queue worker. On shared cPanel hosting this may be a managed long-running worker where available, or a cron-driven `php artisan queue:work --stop-when-empty` process.
 
 ## Adding project schema
 

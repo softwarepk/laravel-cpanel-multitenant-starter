@@ -20,6 +20,10 @@ Configure these environment values for production:
 
 The exact keys are defined by `.env.example` and `config/central.php`.
 
+Database sessions and database cache are intentional multi-tenant defaults: tenant resolution occurs before session/cache access, so those records follow the active tenant database. The database queue remains central and carries tenant context in the queued payload.
+
+HTTPS enforcement defaults on in production through `APP_ENV=production`. Do not set `FORCE_HTTPS=false` unless the deployment intentionally terminates/enforces HTTPS elsewhere and the application-level redirect is not desired.
+
 ## Platform hostnames
 
 Each tenant gets a permanent platform hostname such as:
@@ -89,7 +93,17 @@ php artisan optimize
 
 Run tenant migrations on every deployment that changes tenant schema. A successful central migration alone does not update tenant databases.
 
-For deployments with long-running queue workers, restart workers after code/config changes using the mechanism available on the host.
+## Queue workers
+
+`QUEUE_CONNECTION=database` is the default. Queue rows live in the central database, while tenant-aware jobs carry the originating tenant ID and restore tenant context when processed.
+
+If cPanel provides a managed long-running process, run a normal Laravel `queue:work` worker and restart it after code/config deployments. On hosts without a persistent worker facility, a cron entry may run:
+
+```bash
+php artisan queue:work --stop-when-empty --tries=3
+```
+
+If a particular application deliberately uses only synchronous jobs, it may set `QUEUE_CONNECTION=sync`, but that is an application-specific override rather than the multi-tenant starter default.
 
 ## Backups
 
