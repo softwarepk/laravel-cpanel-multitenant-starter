@@ -79,7 +79,7 @@ class ProvisionTenant
                 $admin = User::query()->firstOrNew(['email' => $adminEmail]);
                 $admin->name = $adminName;
                 $admin->password = $adminPassword;
-                $admin->role = UserRole::Administrator;
+                $admin->role = UserRole::Administrator->value;
                 $admin->email_verified_at ??= Carbon::now();
                 $admin->save();
             });
