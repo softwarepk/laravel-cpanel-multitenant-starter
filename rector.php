@@ -1,7 +1,9 @@
 <?php
 
-use Rector\CodeQuality\Rector\Stmt\DeclareStrictTypesRector;
+declare(strict_types=1);
+
 use Rector\Config\RectorConfig;
+use Rector\TypeDeclaration\Rector\StmtsAwareInterface\SafeDeclareStrictTypesRector;
 
 return RectorConfig::configure()
     ->withPaths([
@@ -12,6 +14,12 @@ return RectorConfig::configure()
         __DIR__.'/routes',
         __DIR__.'/tests',
     ])
-    ->withPreparedSets(deadCode: true, codeQuality: true, earlyReturn: true)
-    ->withPhpSets()
-    ->withSkip([DeclareStrictTypesRector::class]);
+    ->withSkip([
+        SafeDeclareStrictTypesRector::class,
+    ])
+    ->withPreparedSets(
+        deadCode: true,
+        codeQuality: true,
+        earlyReturn: true,
+    )
+    ->withPhpSets();
