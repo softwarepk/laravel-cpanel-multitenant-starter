@@ -129,13 +129,13 @@ class CreateLocalTenant extends Command
 
             $tenant->update(['provisioning_status' => 'administrator']);
             $tenant->run(function () use ($validated): void {
-                User::query()->create([
-                    'name' => $validated['admin_name'],
-                    'email' => $validated['admin_email'],
-                    'password' => $validated['admin_password'],
-                    'role' => UserRole::Administrator->value,
-                    'email_verified_at' => Carbon::now(),
-                ]);
+                $admin = new User;
+                $admin->name = $validated['admin_name'];
+                $admin->email = $validated['admin_email'];
+                $admin->password = $validated['admin_password'];
+                $admin->role = UserRole::Administrator->value;
+                $admin->email_verified_at = Carbon::now();
+                $admin->save();
             });
 
             $tenant->update([
