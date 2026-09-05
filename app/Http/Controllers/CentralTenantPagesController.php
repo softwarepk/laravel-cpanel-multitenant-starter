@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\CentralAuditLog;
 use App\Models\Tenant;
 use App\Services\CentralSettings;
+use App\Services\CpanelProvisioningReadiness;
 use Illuminate\View\View;
 
 class CentralTenantPagesController extends Controller
@@ -14,8 +15,15 @@ class CentralTenantPagesController extends Controller
         return view('central.tenants.index', ['tenants' => Tenant::query()->with('domains')->orderBy('name')->orderBy('id')->get(), 'platformDomain' => (string) config('central.platform.domain')]);
     }
 
-    public function create(CentralSettings $settings): View
+    public function create(CentralSettings $settings, CpanelProvisioningReadiness $readiness): View
     {
+        if (! $readiness->isReady()) {
+            return view('central.tenants.create-unavailable', [
+                'missingRequirements' => $readiness->missingRequirements(),
+                'tenantDriver' => (string) config('database.connections.tenant_template.driver'),
+            ]);
+        }
+
         return view('central.tenants.create', ['platformDomain' => (string) config('central.platform.domain'), 'passwordMinimumLength' => $settings->passwordMinimumLength()]);
     }
 
