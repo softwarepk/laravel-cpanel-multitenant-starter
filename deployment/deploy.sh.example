@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Example only. Adjust paths/environment activation for your cPanel account.
+
+APP_DIR="${APP_DIR:-$HOME/laravel-cpanel-multitenant-starter}"
+cd "$APP_DIR"
+
+git pull --ff-only
+composer install --no-dev --optimize-autoloader --no-interaction
+php artisan migrate --force
+php artisan tenants:migrate --force
+npm ci
+npm run build
+php artisan optimize
+
+echo "Multi-tenant Laravel deployment completed."

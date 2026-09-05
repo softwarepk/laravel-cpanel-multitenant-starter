@@ -1,7 +1,24 @@
-@props(['title', 'description' => null])
-<div {{ $attributes->class('ui-empty-state') }}>
-    <div class="mx-auto flex size-9 items-center justify-center rounded-full bg-zinc-100 text-zinc-400 dark:bg-zinc-800">—</div>
-    <h3 class="mt-3 font-semibold">{{ $title }}</h3>
-    @if($description)<p class="mt-1 text-sm leading-6 text-zinc-500">{{ $description }}</p>@endif
-    @isset($actions)<div class="mt-4 flex justify-center gap-2">{{ $actions }}</div>@endisset
+@props([
+    'title',
+    'description' => null,
+    'compact' => false,
+])
+
+<div {{ $attributes->class([
+    'ui-empty-state',
+    'ui-empty-state-compact' => $compact,
+]) }}>
+    <div class="ui-empty-state-mark" aria-hidden="true">·</div>
+    <div class="min-w-0">
+        <div class="font-semibold text-zinc-950 dark:text-white">{{ $title }}</div>
+        @if ($description)
+            <div class="mt-1 text-sm leading-5 text-zinc-600 dark:text-zinc-300">{{ $description }}</div>
+        @endif
+        @isset($action)
+            <div class="mt-4">{{ $action }}</div>
+        @endisset
+        @isset($actions)
+            <div class="mt-4">{{ $actions }}</div>
+        @endisset
+    </div>
 </div>

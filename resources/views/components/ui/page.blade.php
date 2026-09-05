@@ -1,3 +1,19 @@
-@props(['width' => 'default'])
-@php($max = $width === 'wide' ? 'max-w-[1600px]' : 'max-w-7xl')
-<div {{ $attributes->class(['ui-page mx-auto w-full '.$max]) }}>{{ $slot }}</div>
+@props([
+    'width' => 'standard',
+])
+
+@php
+    $maxWidth = match ($width) {
+        'form', '6xl' => 'max-w-6xl',
+        'detail' => 'max-w-[76rem]',
+        'wide' => 'max-w-[92rem]',
+        'data' => 'max-w-[104rem]',
+        '5xl' => 'max-w-5xl',
+        '7xl' => 'max-w-7xl',
+        default => 'max-w-[84rem]',
+    };
+@endphp
+
+<div {{ $attributes->class(["ui-page mx-auto flex w-full {$maxWidth} flex-col"]) }}>
+    {{ $slot }}
+</div>
