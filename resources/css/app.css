@@ -1,0 +1,66 @@
+@import 'tailwindcss';
+@import '../../vendor/livewire/flux/dist/flux.css';
+
+@source '../views';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../vendor/livewire/flux/stubs/**/*.blade.php';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+    --color-accent: #2563eb;
+    --color-accent-content: #1d4ed8;
+    --color-accent-foreground: #ffffff;
+}
+
+@layer base {
+    body { @apply antialiased text-[15px]; }
+    [x-cloak] { display: none !important; }
+    ::selection { @apply bg-blue-100 text-blue-950 dark:bg-blue-900/60 dark:text-blue-50; }
+}
+
+@layer components {
+    .ui-page { @apply flex flex-col gap-5 px-4 pt-3 pb-6 sm:px-6 sm:pb-7 lg:px-8 lg:pb-8; }
+    .ui-page-header { @apply border-b border-zinc-200 pb-4 dark:border-zinc-800; }
+    .ui-page-meta { @apply flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-sm text-zinc-600 dark:text-zinc-400; }
+    .ui-eyebrow { @apply text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400; }
+    .ui-section { @apply space-y-4; }
+    .ui-section-header { @apply border-b border-zinc-200 pb-3 dark:border-zinc-800; }
+    .ui-table-shell { @apply overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900; }
+    .ui-table-shell table { @apply w-full text-sm; }
+    .ui-table-shell thead { @apply bg-zinc-100/80 text-[0.72rem] font-semibold uppercase tracking-[0.035em] text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400; }
+    .ui-table-shell th { @apply px-4 py-3 text-left font-semibold; }
+    .ui-table-shell td { @apply px-4 py-3.5 align-middle; }
+    .ui-table-shell tbody { @apply divide-y divide-zinc-200 dark:divide-zinc-800; }
+    .ui-table-shell tbody tr { @apply transition-colors hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40; }
+    .ui-filter-bar { @apply rounded-lg border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60; }
+    .ui-summary-surface { @apply rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900; }
+    .ui-summary-stat { @apply min-w-0 px-5 py-4; }
+    .ui-muted-panel { @apply rounded-lg border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60; }
+    .ui-number { @apply tabular-nums; }
+    .ui-form-actions { @apply mt-5 flex flex-col-reverse gap-3 border-t border-zinc-200 pt-4 sm:flex-row sm:items-center sm:justify-end dark:border-zinc-800; }
+    .ui-empty-state { @apply mx-auto max-w-lg px-5 py-10 text-center; }
+    .ui-settings-shell { @apply grid min-w-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 lg:grid-cols-[16.5rem_minmax(0,1fr)]; }
+    .ui-settings-sidebar { @apply border-b border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/55 lg:min-h-[38rem] lg:border-b-0 lg:border-r; }
+    .ui-settings-sidebar-intro { @apply mb-4 border-b border-zinc-200 px-2 pb-4 dark:border-zinc-800; }
+    .ui-settings-sidebar-kicker { @apply text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400; }
+    .ui-settings-sidebar-copy { @apply mt-1.5 text-sm leading-5 text-zinc-600 dark:text-zinc-300; }
+    .ui-settings-nav { @apply flex gap-2 overflow-x-auto lg:block lg:space-y-1; }
+    .ui-settings-nav-link { @apply block rounded-lg border border-transparent px-3 py-2.5 text-zinc-700 transition hover:border-zinc-200 hover:bg-white dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-800; }
+    .ui-settings-nav-link-active { @apply border-blue-200 bg-blue-50 text-blue-950 dark:border-blue-900/80 dark:bg-blue-950/45 dark:text-blue-100; }
+    .ui-settings-nav-title { @apply block text-sm font-semibold; }
+    .ui-settings-nav-description { @apply mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400; }
+    .ui-settings-workspace { @apply min-w-0; }
+    .ui-settings-workspace-header { @apply border-b border-zinc-200 px-5 py-5 sm:px-6 lg:px-7 dark:border-zinc-800; }
+    .ui-settings-context { @apply mb-1 text-xs font-semibold uppercase tracking-[0.1em] text-blue-600 dark:text-blue-400; }
+    .ui-settings-workspace-body { @apply space-y-6 p-5 sm:p-6 lg:p-7; }
+    .ui-settings-block { @apply overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900/35; }
+    .ui-settings-block-header { @apply border-b border-zinc-200 bg-zinc-50/60 px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900/70; }
+    .ui-settings-block-title { @apply text-base font-semibold text-zinc-950 dark:text-white; }
+    .ui-settings-block-description { @apply mt-1 text-sm text-zinc-600 dark:text-zinc-300; }
+    .ui-settings-block-body { @apply p-5; }
+    .ui-tabs { @apply flex gap-1 overflow-x-auto border-b border-zinc-200 px-4 dark:border-zinc-800; }
+    .ui-tab { @apply -mb-px whitespace-nowrap border-b-2 border-transparent px-3 py-3.5 text-sm font-medium text-zinc-500; }
+    .ui-tab-active { @apply border-blue-600 font-semibold text-blue-700 dark:border-blue-400 dark:text-blue-300; }
+}
