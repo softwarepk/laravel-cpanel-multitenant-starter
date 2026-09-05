@@ -12,12 +12,12 @@ class CentralAuditLogger
     /** @param array<string, mixed> $context */
     public function log(string $action, ?string $description = null, ?string $tenantId = null, array $context = [], ?CentralAdmin $admin = null, ?Request $request = null): CentralAuditLog
     {
-        if ($admin === null) {
+        if (! $admin instanceof CentralAdmin) {
             $authenticated = Auth::guard('central')->user();
             $admin = $authenticated instanceof CentralAdmin ? $authenticated : null;
         }
 
-        if ($request === null && app()->bound('request')) {
+        if (! $request instanceof Request && app()->bound('request')) {
             $request = request();
         }
 

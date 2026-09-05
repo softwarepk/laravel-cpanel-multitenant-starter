@@ -43,14 +43,24 @@ class CpanelUapiTenantDomainProvisioner implements TenantDomainProvisioner
     private function domainExists(string $domain): bool
     {
         $result = $this->cpanel->uapi('DomainInfo', 'list_domains');
+
         return $this->containsExactString($result['data'] ?? [], $domain);
     }
 
     private function containsExactString(mixed $value, string $needle): bool
     {
-        if (is_string($value)) return $value === $needle;
-        if (! is_array($value)) return false;
-        foreach ($value as $item) if ($this->containsExactString($item, $needle)) return true;
+        if (is_string($value)) {
+            return $value === $needle;
+        }
+        if (! is_array($value)) {
+            return false;
+        }
+        foreach ($value as $item) {
+            if ($this->containsExactString($item, $needle)) {
+                return true;
+            }
+        }
+
         return false;
     }
 }

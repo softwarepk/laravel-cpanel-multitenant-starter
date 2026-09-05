@@ -71,7 +71,9 @@ class ProvisionTenant
             $tenant->update(['provisioning_status' => 'migrating']);
             $tenant->run(function (): void {
                 $exit = Artisan::call('migrate', ['--database' => 'tenant', '--path' => database_path('migrations/tenant'), '--realpath' => true, '--force' => true]);
-                if ($exit !== 0) throw new \RuntimeException(trim(Artisan::output()) ?: 'Tenant migration failed.');
+                if ($exit !== 0) {
+                    throw new \RuntimeException(trim(Artisan::output()) ?: 'Tenant migration failed.');
+                }
             });
 
             $tenant->update(['provisioning_status' => 'administrator']);
@@ -85,8 +87,11 @@ class ProvisionTenant
             });
 
             $tenant->update(['status' => 'provisioning', 'provisioning_status' => 'https_pending', 'provisioning_error' => null, 'suspended_at' => null]);
-            if ($this->https->isReady($platformDomain)) $this->activateAfterHttps($tenant, $platform);
-            else $this->audit->log('tenant.platform_https_pending', 'Tenant application is ready and waiting for a trusted HTTPS certificate.', tenantId: $tenantId, context: ['domain' => $platformDomain]);
+            if ($this->https->isReady($platformDomain)) {
+                $this->activateAfterHttps($tenant, $platform);
+            } else {
+                $this->audit->log('tenant.platform_https_pending', 'Tenant application is ready and waiting for a trusted HTTPS certificate.', tenantId: $tenantId, context: ['domain' => $platformDomain]);
+            }
 
             return $tenant->refresh();
         } catch (Throwable $e) {
@@ -100,6 +105,7 @@ class ProvisionTenant
         $platform->update(['status' => 'active', 'ssl_verified_at' => now(), 'is_primary' => true]);
         $tenant->update(['status' => 'active', 'provisioning_status' => 'active', 'provisioning_error' => null, 'provisioned_at' => now(), 'suspended_at' => null]);
         $this->audit->log('tenant.platform_https_ready', 'Trusted HTTPS certificate confirmed; tenant activated.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $platform->domain]);
+
         return $tenant->refresh();
     }
 
@@ -107,21 +113,30 @@ class ProvisionTenant
     {
         $root = $this->platformRootDomain();
         $tenantId = strtolower(trim($tenantId));
-        if (! preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $tenantId)) throw new InvalidArgumentException('Tenant ID must be a valid DNS label using lowercase letters, numbers, and hyphens.');
+        if (! preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $tenantId)) {
+            throw new InvalidArgumentException('Tenant ID must be a valid DNS label using lowercase letters, numbers, and hyphens.');
+        }
+
         return $tenantId.'.'.$root;
     }
 
     private function platformRootDomain(): string
     {
         $domain = strtolower(trim((string) config('central.platform.domain')));
-        if ($domain === '' || ! preg_match('/^(?=.{1,253}\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $domain)) throw new InvalidArgumentException('TENANT_PLATFORM_DOMAIN is not configured with a valid hostname.');
+        if ($domain === '' || ! preg_match('/^(?=.{1,253}\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $domain)) {
+            throw new InvalidArgumentException('TENANT_PLATFORM_DOMAIN is not configured with a valid hostname.');
+        }
+
         return $domain;
     }
 
     private function platformDocumentRoot(): string
     {
         $root = trim((string) config('central.platform.document_root'));
-        if ($root === '') throw new InvalidArgumentException('TENANT_PLATFORM_DOCUMENT_ROOT is not configured.');
+        if ($root === '') {
+            throw new InvalidArgumentException('TENANT_PLATFORM_DOCUMENT_ROOT is not configured.');
+        }
+
         return $root;
     }
 
@@ -130,7 +145,10 @@ class ProvisionTenant
         $prefix = (string) config('central.cpanel.tenant_database_prefix');
         $suffix = Str::of($tenantId)->lower()->replaceMatches('/[^a-z0-9_]+/', '_')->trim('_')->value();
         $name = $prefix.$suffix;
-        if ($name === '' || strlen($name) > 64 || ! preg_match('/^[A-Za-z0-9_]+$/', $name)) throw new InvalidArgumentException('Generated tenant database name is invalid.');
+        if ($name === '' || strlen($name) > 64 || ! preg_match('/^[A-Za-z0-9_]+$/', $name)) {
+            throw new InvalidArgumentException('Generated tenant database name is invalid.');
+        }
+
         return $name;
     }
 }

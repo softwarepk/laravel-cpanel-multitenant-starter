@@ -15,6 +15,7 @@ class Profile extends Component
     use ProfileValidationRules;
 
     public string $name = '';
+
     public string $email = '';
 
     public function mount(): void
@@ -28,10 +29,15 @@ class Profile extends Component
     {
         $user = Auth::user();
         $validated = $this->validate($this->profileRules($user));
-        if ($user->email !== $validated['email']) $user->email_verified_at = null;
+        if ($user->email !== $validated['email']) {
+            $user->email_verified_at = null;
+        }
         $user->fill($validated)->save();
         session()->flash('status', 'Profile updated.');
     }
 
-    public function render() { return view('settings.profile'); }
+    public function render()
+    {
+        return view('settings.profile');
+    }
 }

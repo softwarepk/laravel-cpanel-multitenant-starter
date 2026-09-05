@@ -38,7 +38,10 @@ class AppServiceProvider extends ServiceProvider
         Date::use(CarbonImmutable::class);
         DB::prohibitDestructiveCommands(app()->isProduction());
         Password::defaults(function (): ?Password {
-            if (! app()->isProduction()) return null;
+            if (! app()->isProduction()) {
+                return null;
+            }
+
             return Password::min(app(CentralSettings::class)->passwordMinimumLength())->mixedCase()->letters()->numbers()->symbols()->uncompromised();
         });
     }

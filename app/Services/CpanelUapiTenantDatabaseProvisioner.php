@@ -33,6 +33,7 @@ class CpanelUapiTenantDatabaseProvisioner implements TenantDatabaseProvisioner
     private function databaseExists(string $databaseName): bool
     {
         $result = $this->cpanel->uapi('Mysql', 'list_databases');
+
         return $this->containsExactString($result['data'] ?? [], $databaseName);
     }
 
@@ -49,6 +50,7 @@ class CpanelUapiTenantDatabaseProvisioner implements TenantDatabaseProvisioner
                 return true;
             }
         }
+
         return false;
     }
 }

@@ -26,6 +26,7 @@ class PlatformHttpsVerifier
         }
 
         fclose($socket);
+
         return true;
     }
 }

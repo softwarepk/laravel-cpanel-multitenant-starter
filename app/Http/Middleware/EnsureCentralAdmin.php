@@ -11,7 +11,10 @@ class EnsureCentralAdmin
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (! Auth::guard('central')->check()) return redirect()->guest(route('central.login'));
+        if (! Auth::guard('central')->check()) {
+            return redirect()->guest(route('central.login'));
+        }
+
         return $next($request);
     }
 }

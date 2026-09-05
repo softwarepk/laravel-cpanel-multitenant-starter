@@ -11,6 +11,7 @@ class EnsureCentralDomain
     public function handle(Request $request, Closure $next): Response
     {
         abort_unless(in_array(strtolower($request->getHost()), config('tenancy.central_domains', []), true), 404);
+
         return $next($request);
     }
 }

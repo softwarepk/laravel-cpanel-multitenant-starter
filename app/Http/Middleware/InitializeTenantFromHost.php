@@ -16,7 +16,10 @@ class InitializeTenantFromHost
 
         if (in_array($host, $centralDomains, true)) {
             if ($request->is('up') || $request->is('central') || $request->is('central/*')) {
-                if ($this->shouldRedirectToHttps($request)) return redirect()->away($this->httpsUrl($request), 308);
+                if ($this->shouldRedirectToHttps($request)) {
+                    return redirect()->away($this->httpsUrl($request), 308);
+                }
+
                 return $next($request);
             }
             abort(404);
@@ -25,10 +28,16 @@ class InitializeTenantFromHost
         $tenant = Tenant::query()->whereHas('domains', fn ($query) => $query->where('domain', $host)->where('status', 'active'))->first();
         abort_unless($tenant && $tenant->isActive(), 404);
 
-        if ($this->shouldRedirectToHttps($request)) return redirect()->away($this->httpsUrl($request), 308);
+        if ($this->shouldRedirectToHttps($request)) {
+            return redirect()->away($this->httpsUrl($request), 308);
+        }
 
         tenancy()->initialize($tenant);
-        try { return $next($request); } finally { tenancy()->end(); }
+        try {
+            return $next($request);
+        } finally {
+            tenancy()->end();
+        }
     }
 
     private function shouldRedirectToHttps(Request $request): bool

@@ -10,6 +10,7 @@ use App\Http\Controllers\CentralTenantPagesController;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Laravel\Fortify\Features;
 
 Route::prefix('central')
     ->middleware('central.domain')
@@ -41,12 +42,10 @@ Route::prefix('central')
         });
     });
 
-Route::get('/', function (): RedirectResponse {
-    return redirect()->route(Auth::check() ? 'dashboard' : 'login');
-})->name('home');
+Route::get('/', fn (): RedirectResponse => redirect()->route(Auth::check() ? 'dashboard' : 'login'))->name('home');
 
 $applicationMiddleware = ['auth'];
-if (filter_var(config('fortify.features') && in_array(\Laravel\Fortify\Features::emailVerification(), config('fortify.features', []), true), FILTER_VALIDATE_BOOL)) {
+if (config('fortify.features') && in_array(Features::emailVerification(), config('fortify.features', []), true)) {
     $applicationMiddleware[] = 'verified';
 }
 

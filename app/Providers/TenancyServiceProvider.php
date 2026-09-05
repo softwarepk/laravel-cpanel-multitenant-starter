@@ -36,15 +36,21 @@ class TenancyServiceProvider extends ServiceProvider
     public function boot(): void
     {
         foreach ($this->events() as $event => $listeners) {
-            foreach ($listeners as $listener) Event::listen($event, $listener instanceof JobPipeline ? $listener->toListener() : $listener);
+            foreach ($listeners as $listener) {
+                Event::listen($event, $listener instanceof JobPipeline ? $listener->toListener() : $listener);
+            }
         }
 
         $this->app->booted(function (): void {
-            if (file_exists(base_path('routes/tenant.php'))) Route::namespace(static::$controllerNamespace)->group(base_path('routes/tenant.php'));
+            if (file_exists(base_path('routes/tenant.php'))) {
+                Route::namespace(static::$controllerNamespace)->group(base_path('routes/tenant.php'));
+            }
         });
 
         $kernel = $this->app->make(HttpKernelContract::class);
         $middleware = [Middleware\PreventAccessFromCentralDomains::class, Middleware\InitializeTenancyByDomain::class, Middleware\InitializeTenancyBySubdomain::class, Middleware\InitializeTenancyByDomainOrSubdomain::class, Middleware\InitializeTenancyByPath::class, Middleware\InitializeTenancyByRequestData::class];
-        foreach (array_reverse($middleware) as $item) $kernel->prependToMiddlewarePriority($item);
+        foreach (array_reverse($middleware) as $item) {
+            $kernel->prependToMiddlewarePriority($item);
+        }
     }
 }

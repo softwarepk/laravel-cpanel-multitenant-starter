@@ -27,6 +27,7 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::confirmPasswordView(fn () => view('pages.auth.confirm-password'));
         RateLimiter::for('login', function (Request $request) {
             $key = Str::transliterate(Str::lower((string) $request->input(Fortify::username())).'|'.$request->ip());
+
             return Limit::perMinute(5)->by($key);
         });
     }

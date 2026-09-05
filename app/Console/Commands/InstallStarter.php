@@ -54,8 +54,13 @@ class InstallStarter extends Command
     private function stringOption(string $option, string $question, string $default): string
     {
         $value = $this->option($option);
-        if (is_string($value) && trim($value) !== '') return trim($value);
-        if (! $this->input->isInteractive()) return trim($default);
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+        if (! $this->input->isInteractive()) {
+            return trim($default);
+        }
+
         return trim((string) $this->ask($question, $default));
     }
 
@@ -69,33 +74,44 @@ class InstallStarter extends Command
                 default => throw new InvalidArgumentException("Invalid --{$option} value [{$value}]. Use yes or no."),
             };
         }
+
         return $this->input->isInteractive() ? $this->confirm($question, $default) : $default;
     }
 
     private function firstCentralDomain(): string
     {
         $domains = config('tenancy.central_domains', ['localhost']);
+
         return is_array($domains) && isset($domains[0]) ? (string) $domains[0] : 'localhost';
     }
 
     private function setEnvironmentValue(string $key, string $value): void
     {
         $path = base_path('.env');
-        if (! file_exists($path)) copy(base_path('.env.example'), $path);
+        if (! file_exists($path)) {
+            copy(base_path('.env.example'), $path);
+        }
         $contents = file_get_contents($path);
-        if ($contents === false) throw new RuntimeException('Unable to read the .env file.');
+        if ($contents === false) {
+            throw new RuntimeException('Unable to read the .env file.');
+        }
         $pattern = '/^'.preg_quote($key, '/').'=.*/m';
         $replacement = $key.'='.$value;
         $contents = preg_match($pattern, $contents) === 1
             ? (string) preg_replace($pattern, $replacement, $contents, 1)
             : rtrim($contents).PHP_EOL.$replacement.PHP_EOL;
-        if (file_put_contents($path, $contents) === false) throw new RuntimeException('Unable to update the .env file.');
+        if (file_put_contents($path, $contents) === false) {
+            throw new RuntimeException('Unable to update the .env file.');
+        }
     }
 
     private function quoteEnvironmentValue(string $value): string
     {
         $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($encoded === false) throw new RuntimeException('Unable to encode the environment value.');
+        if ($encoded === false) {
+            throw new RuntimeException('Unable to encode the environment value.');
+        }
+
         return $encoded;
     }
 }

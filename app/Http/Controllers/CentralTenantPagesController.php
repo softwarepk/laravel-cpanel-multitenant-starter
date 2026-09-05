@@ -22,6 +22,7 @@ class CentralTenantPagesController extends Controller
     public function show(Tenant $tenant, CentralSettings $settings): View
     {
         $tenant->load('domains');
+
         return view('central.tenants.show', [
             'tenant' => $tenant,
             'auditLogs' => CentralAuditLog::query()->with('centralAdmin')->where('tenant_id', (string) $tenant->getTenantKey())->latest('created_at')->limit(20)->get(),

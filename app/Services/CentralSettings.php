@@ -13,6 +13,7 @@ class CentralSettings
     public function get(string $key, mixed $default = null): mixed
     {
         $settings = $this->all();
+
         return array_key_exists($key, $settings) ? $settings[$key] : $default;
     }
 

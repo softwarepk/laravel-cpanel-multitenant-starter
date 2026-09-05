@@ -28,6 +28,7 @@ class CentralSettingsController extends Controller
         $previous = $settings->passwordMinimumLength();
         $settings->setMany(['password_min_length' => (int) $validated['password_min_length']]);
         $audit->log('central.settings_updated', 'Central platform settings updated.', context: ['password_min_length' => ['from' => $previous, 'to' => (int) $validated['password_min_length']]], request: $request);
+
         return back()->with('status', 'Platform settings saved.');
     }
 }

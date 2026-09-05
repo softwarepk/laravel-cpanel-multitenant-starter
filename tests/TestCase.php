@@ -106,7 +106,7 @@ abstract class TestCase extends BaseTestCase
             URL::forceRootUrl('http://'.$this->testTenantDomain);
             $this->withoutMiddleware(InitializeTenantFromHost::class);
 
-            if ($tenant !== null && ! tenancy()->initialized) {
+            if ($tenant instanceof Tenant && ! tenancy()->initialized) {
                 tenancy()->initialize($tenant);
             }
 

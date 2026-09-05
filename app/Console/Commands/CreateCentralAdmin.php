@@ -21,7 +21,7 @@ class CreateCentralAdmin extends Command
         $email = strtolower(trim((string) ($this->option('email') ?: ($this->input->isInteractive() ? $this->ask('Administrator email') : ''))));
         $password = (string) ($this->option('password') ?: ($this->input->isInteractive() ? $this->secret('Administrator password') : ''));
 
-        $validated = Validator::make(compact('name', 'email', 'password'), [
+        $validated = Validator::make(['name' => $name, 'email' => $email, 'password' => $password], [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255'],
             'password' => ['required', 'string', 'min:12'],
@@ -33,6 +33,7 @@ class CreateCentralAdmin extends Command
         );
 
         $this->components->info('Central administrator ready: '.$admin->email);
+
         return self::SUCCESS;
     }
 }

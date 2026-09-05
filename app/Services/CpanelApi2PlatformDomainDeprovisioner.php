@@ -29,11 +29,17 @@ class CpanelApi2PlatformDomainDeprovisioner implements PlatformDomainDeprovision
             throw new RuntimeException("Refusing to delete platform domain [{$domain}] because its tenant label is invalid.");
         }
 
-        if (app()->runningUnitTests() && trim((string) config('central.cpanel.api_host')) === '') return;
+        if (app()->runningUnitTests() && trim((string) config('central.cpanel.api_host')) === '') {
+            return;
+        }
 
         $data = $this->domainData($domain);
-        if ($data === null) return;
-        if (($data['domain'] ?? null) !== $domain) throw new RuntimeException("cPanel returned unexpected domain data while preparing to delete [{$domain}].");
+        if ($data === null) {
+            return;
+        }
+        if (($data['domain'] ?? null) !== $domain) {
+            throw new RuntimeException("cPanel returned unexpected domain data while preparing to delete [{$domain}].");
+        }
 
         $actual = rtrim((string) ($data['documentroot'] ?? ''), '/');
         $home = rtrim((string) ($data['homedir'] ?? ''), '/');
@@ -43,16 +49,26 @@ class CpanelApi2PlatformDomainDeprovisioner implements PlatformDomainDeprovision
         }
 
         $this->cpanel->api2('SubDomain', 'delsubdomain', ['domain' => $domain]);
-        for ($attempt = 0; $attempt < 4; $attempt++) { if ($this->domainData($domain) === null) return; usleep(250000); }
+        for ($attempt = 0; $attempt < 4; $attempt++) {
+            if ($this->domainData($domain) === null) {
+                return;
+            } usleep(250000);
+        }
         throw new RuntimeException("cPanel reported success, but platform domain [{$domain}] is still present.");
     }
 
     /** @return array<string,mixed>|null */
     private function domainData(string $domain): ?array
     {
-        try { $result = $this->cpanel->uapi('DomainInfo', 'single_domain_data', ['domain' => $domain]); }
-        catch (RuntimeException $e) { if (str_contains(strtolower($e->getMessage()), 'unable to locate the domain')) return null; throw $e; }
+        try {
+            $result = $this->cpanel->uapi('DomainInfo', 'single_domain_data', ['domain' => $domain]);
+        } catch (RuntimeException $e) {
+            if (str_contains(strtolower($e->getMessage()), 'unable to locate the domain')) {
+                return null;
+            } throw $e;
+        }
         $data = $result['data'] ?? null;
+
         return is_array($data) ? $data : null;
     }
 }

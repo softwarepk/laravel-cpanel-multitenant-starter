@@ -12,7 +12,9 @@ use Livewire\Component;
 class Security extends Component
 {
     public string $current_password = '';
+
     public string $password = '';
+
     public string $password_confirmation = '';
 
     public function updatePassword(): void
@@ -26,5 +28,8 @@ class Security extends Component
         session()->flash('status', 'Password updated.');
     }
 
-    public function render() { return view('settings.security'); }
+    public function render()
+    {
+        return view('settings.security');
+    }
 }

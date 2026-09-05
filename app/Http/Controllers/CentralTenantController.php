@@ -43,7 +43,10 @@ class CentralTenantController extends Controller
         } catch (Throwable $e) {
             report($e);
             $audit->log('tenant.provisioning_failed', 'Tenant provisioning failed.', tenantId: $validated['id'], context: ['name' => $validated['name'], 'error' => $e->getMessage()], request: $request);
-            if ($request->expectsJson()) return response()->json(['message' => 'Tenant provisioning failed.', 'errors' => ['provisioning' => [$e->getMessage()]]], 422);
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Tenant provisioning failed.', 'errors' => ['provisioning' => [$e->getMessage()]]], 422);
+            }
+
             return back()->withInput($request->except(['admin_password', 'admin_password_confirmation']))->withErrors(['provisioning' => $e->getMessage()]);
         }
 
@@ -52,15 +55,21 @@ class CentralTenantController extends Controller
         $audit->log('tenant.provisioned', $active ? 'Tenant provisioned successfully.' : 'Tenant application provisioned and awaiting trusted HTTPS.', tenantId: (string) $tenant->getTenantKey(), context: ['name' => $tenant->name, 'domain' => $domain, 'database' => $tenant->database_name, 'https_pending' => ! $active], request: $request);
         $redirect = route('central.tenants.show', $tenant);
 
-        if ($request->expectsJson()) return response()->json(['tenant_id' => (string) $tenant->getTenantKey(), 'status' => $tenant->status, 'provisioning_status' => $tenant->provisioning_status, 'redirect' => $redirect], $active ? 200 : 202);
+        if ($request->expectsJson()) {
+            return response()->json(['tenant_id' => (string) $tenant->getTenantKey(), 'status' => $tenant->status, 'provisioning_status' => $tenant->provisioning_status, 'redirect' => $redirect], $active ? 200 : 202);
+        }
+
         return redirect($redirect)->with('status', $active ? "Tenant {$tenant->name} is active." : "Tenant {$tenant->name} is provisioned and waiting for a trusted HTTPS certificate.");
     }
 
     public function provisioningStatus(string $tenantId): JsonResponse
     {
         $tenant = Tenant::query()->with('domains')->find($tenantId);
-        if ($tenant === null) return response()->json(['tenant_id' => $tenantId, 'status' => 'starting', 'provisioning_status' => 'starting', 'message' => 'Reserving tenant identity…']);
+        if ($tenant === null) {
+            return response()->json(['tenant_id' => $tenantId, 'status' => 'starting', 'provisioning_status' => 'starting', 'message' => 'Reserving tenant identity…']);
+        }
         $platform = $tenant->domains->firstWhere('type', 'platform');
+
         return response()->json([
             'tenant_id' => (string) $tenant->getTenantKey(),
             'status' => $tenant->status,
@@ -85,6 +94,7 @@ class CentralTenantController extends Controller
         if (! $https->isReady($platform->domain)) {
             $tenant->update(['status' => 'provisioning', 'provisioning_status' => 'https_pending']);
             $platform->update(['status' => 'pending', 'ssl_verified_at' => null]);
+
             return $request->expectsJson()
                 ? response()->json(['ready' => false, 'status' => 'provisioning', 'provisioning_status' => 'https_pending', 'message' => 'Waiting for cPanel to issue a trusted HTTPS certificate…'], 202)
                 : back()->with('status', 'HTTPS certificate is still pending. The tenant will remain unavailable on the platform hostname until it is trusted.');
@@ -129,11 +139,13 @@ class CentralTenantController extends Controller
             $message = $this->customDomainProvisioningMessage($e);
             $custom->update(['cpanel_verified_at' => null, 'verification_error' => $message]);
             $audit->log('tenant.custom_domain_cpanel_failed', 'Custom domain could not be registered in cPanel.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $custom->domain, 'error' => $e->getMessage()], request: $request);
+
             return back()->withErrors(['custom_domain_provisioning' => "Custom domain {$custom->domain} was saved as pending. {$message}"]);
         }
 
         $custom->update(['cpanel_verified_at' => now(), 'verification_error' => null]);
         $audit->log('tenant.custom_domain_cpanel_ready', 'Custom domain registered in cPanel with the application document root.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $custom->domain], request: $request);
+
         return back()->with('status', "Custom domain {$custom->domain} is registered with the application. Configure its DNS target, allow HTTPS to become ready, then click Verify.");
     }
 
@@ -150,6 +162,7 @@ class CentralTenantController extends Controller
             $message = $this->customDomainProvisioningMessage($e);
             $domain->update(['cpanel_verified_at' => null, 'verification_error' => $message, 'status' => 'pending']);
             $audit->log('tenant.custom_domain_cpanel_failed', 'Custom domain could not be registered in cPanel.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $domain->domain, 'error' => $e->getMessage()], request: $request);
+
             return back()->withErrors(['domain_verification' => $message]);
         }
 
@@ -169,7 +182,10 @@ class CentralTenantController extends Controller
             'status' => $active ? 'active' : 'pending',
         ]);
         $audit->log($active ? 'tenant.custom_domain_activated' : 'tenant.custom_domain_verification_failed', $active ? 'Custom domain verified and activated.' : 'Custom domain verification is still pending.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $domain->domain, 'dns' => $result['dns'], 'cpanel' => $result['cpanel'], 'ssl' => $result['ssl'], 'errors' => $result['errors']], request: $request);
-        if (! $active) return back()->withErrors(['domain_verification' => $domain->verification_error ?: 'Custom domain verification is not complete.']);
+        if (! $active) {
+            return back()->withErrors(['domain_verification' => $domain->verification_error ?: 'Custom domain verification is not complete.']);
+        }
+
         return back()->with('status', "Custom domain {$domain->domain} is active.");
     }
 
@@ -182,6 +198,7 @@ class CentralTenantController extends Controller
             $domain->update(['is_primary' => true]);
         });
         $audit->log('tenant.primary_domain_changed', 'Tenant primary domain changed.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $domain->domain, 'type' => $domain->type], request: $request);
+
         return back()->with('status', "Primary domain changed to {$domain->domain}. The permanent platform domain remains active.");
     }
 
@@ -201,10 +218,12 @@ class CentralTenantController extends Controller
         } catch (Throwable $e) {
             report($e);
             $audit->log('tenant.provisioning_retry_failed', 'Tenant provisioning retry failed.', tenantId: (string) $tenant->getTenantKey(), context: ['error' => $e->getMessage()], request: $request);
+
             return back()->withErrors(['provisioning' => $e->getMessage()]);
         }
 
         $audit->log('tenant.provisioning_retried', 'Tenant provisioning retry completed successfully.', tenantId: (string) $tenant->getTenantKey(), request: $request);
+
         return redirect()->route('central.tenants.show', $tenant)->with('status', 'Tenant provisioning completed.');
     }
 
@@ -213,6 +232,7 @@ class CentralTenantController extends Controller
         abort_unless($tenant->provisioning_status === 'active', 409);
         $tenant->update(['status' => 'active', 'suspended_at' => null]);
         $audit->log('tenant.activated', 'Tenant activated.', tenantId: (string) $tenant->getTenantKey(), request: $request);
+
         return back()->with('status', 'Tenant activated.');
     }
 
@@ -246,6 +266,7 @@ class CentralTenantController extends Controller
         if (str_contains($normalized, 'dns entry for') && str_contains($normalized, 'already exists')) {
             return 'A DNS record for this hostname already exists in the cPanel DNS cluster. Remove that hostname record temporarily, retry registration, then create the DNS record after registration succeeds.';
         }
+
         return 'cPanel registration failed: '.$message;
     }
 }
