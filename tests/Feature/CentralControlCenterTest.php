@@ -12,7 +12,7 @@ it('requires central administrator authentication for the control center', funct
             'HTTP_HOST' => 'localhost',
             'SERVER_NAME' => 'localhost',
         ],
-    )->assertRedirectToRoute('central.login');
+    )->assertRedirect('http://localhost/central/login');
 });
 
 it('allows a central administrator to authenticate independently of tenant users', function (): void {
@@ -43,7 +43,7 @@ it('allows a central administrator to authenticate independently of tenant users
                 'email' => 'platform@example.test',
                 'password' => 'secret-password',
             ],
-        )->assertRedirectToRoute('central.home');
+        )->assertRedirect('http://localhost/central');
     } finally {
         if (! tenancy()->initialized) {
             tenancy()->initialize($tenant);
