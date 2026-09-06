@@ -50,6 +50,8 @@ Production database names are generated from the tenant ID plus a deterministic 
 
 Once a database name is assigned to a tenant, provisioning retries use the persisted identity. Later changes to `CPANEL_TENANT_DB_PREFIX` apply to new tenants only and do not silently move existing tenants to a different database.
 
+Deleted tenant IDs and their database identities remain reserved in deletion history and are not automatically reusable. This avoids reconnecting a future tenant to residual database/storage infrastructure after a partial external cleanup. Use a new tenant ID for a new organization rather than recycling a deleted identifier.
+
 The `TENANT_DB_USERNAME` setting is the database user Laravel uses for tenant connections and the same user to which cPanel provisioning grants access.
 
 ## Request lifecycle
@@ -141,6 +143,8 @@ Before cleanup begins, a central `tenant_deletion_records` snapshot preserves:
 - initiating central administrator.
 
 The completed record stores the result/error for every cleanup step and remains available under Central Activity after the tenant record itself is gone. If deletion of the central tenant record fails, the overall operation is reported as failed.
+
+Deletion history also reserves the deleted tenant/database identity so a later tenant cannot accidentally inherit residual resources with the same deterministic name or tenant storage suffix.
 
 Derived applications remain responsible for their own backup, retention, and legal-hold policy.
 
