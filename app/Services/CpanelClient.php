@@ -18,19 +18,26 @@ class CpanelClient
             $arguments,
             $this->isSafeReadCall('uapi', $module, $function),
         );
+
         if (! $response->successful()) {
             throw new RuntimeException('cPanel UAPI request failed with HTTP '.$response->status().'.');
         }
+
         $decoded = $response->json();
+
         if (! is_array($decoded)) {
             throw new RuntimeException('cPanel UAPI returned an invalid response.');
         }
+
         $wrapped = $decoded['result'] ?? null;
         $result = is_array($wrapped) ? $wrapped : ((array_key_exists('status', $decoded) && (array_key_exists('data', $decoded) || array_key_exists('errors', $decoded) || array_key_exists('messages', $decoded))) ? $decoded : null);
+
         if (! is_array($result)) {
             throw new RuntimeException('cPanel UAPI returned an invalid result.');
         }
+
         $errors = $this->normalizeErrors($result['errors'] ?? null);
+
         if ((int) ($result['status'] ?? 0) !== 1 || $errors !== []) {
             throw new RuntimeException($errors !== [] ? implode(' ', $errors) : 'cPanel UAPI call failed.');
         }
@@ -47,24 +54,32 @@ class CpanelClient
             $query,
             $this->isSafeReadCall('api2', $module, $function),
         );
+
         if (! $response->successful()) {
             throw new RuntimeException('cPanel API 2 request failed with HTTP '.$response->status().'.');
         }
+
         $decoded = $response->json();
         $result = is_array($decoded) ? ($decoded['cpanelresult'] ?? null) : null;
+
         if (! is_array($result)) {
             throw new RuntimeException('cPanel API 2 returned an invalid response.');
         }
+
         $errors = [];
+
         if ((int) data_get($result, 'event.result', 0) !== 1) {
             $errors[] = trim((string) ($result['error'] ?? 'cPanel API 2 call failed.'));
         }
+
         foreach (is_array($result['data'] ?? null) ? $result['data'] : [] as $item) {
             if (is_array($item) && array_key_exists('result', $item) && (int) $item['result'] === 0) {
                 $errors[] = trim((string) ($item['reason'] ?? 'cPanel API 2 call failed.'));
             }
         }
+
         $errors = array_values(array_filter(array_unique($errors)));
+
         if ($errors !== []) {
             throw new RuntimeException(implode(' ', $errors));
         }
@@ -86,11 +101,13 @@ class CpanelClient
                 }
 
                 usleep($attempt * 250000);
+
                 continue;
             }
 
             if ($retryTransient && ($response->serverError() || $response->status() === 429) && $attempt < $attempts) {
                 usleep($attempt * 250000);
+
                 continue;
             }
 
@@ -119,6 +136,7 @@ class CpanelClient
         $token = trim((string) config('central.cpanel.api_token'));
         $connectTimeout = max(1, (int) config('central.cpanel.api_connect_timeout', 5));
         $timeout = max($connectTimeout, (int) config('central.cpanel.api_timeout', 90));
+
         if ($host === '' || $user === '' || $token === '') {
             throw new RuntimeException('cPanel API host, user and token must be configured.');
         }
@@ -130,9 +148,11 @@ class CpanelClient
     {
         $host = trim((string) config('central.cpanel.api_host'));
         $port = (int) config('central.cpanel.api_port', 2083);
+
         if ($host === '') {
             throw new RuntimeException('cPanel API host, user and token must be configured.');
         }
+
         if ($port < 1 || $port > 65535) {
             throw new RuntimeException('cPanel API port is invalid.');
         }
@@ -146,6 +166,7 @@ class CpanelClient
         if (is_string($errors)) {
             $errors = [$errors];
         }
+
         if (! is_array($errors)) {
             return [];
         }
