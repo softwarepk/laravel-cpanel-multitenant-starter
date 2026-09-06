@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Tenant;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -32,14 +33,27 @@ it('keeps records isolated between tenant databases even when identifiers overla
 
     config(['database.connections.tenant_template.database' => $secondDatabasePath]);
 
-    $secondTenant = Tenant::create([
+    $secondTenant = Tenant::withoutEvents(fn (): Tenant => Tenant::create([
         'id' => 'second-tenant',
         'name' => 'Second Tenant',
         'status' => 'active',
         'provisioning_status' => 'active',
         'database_name' => $secondDatabaseName,
-        'tenancy_db_name' => $secondDatabaseName,
-    ]);
+    ]));
+    $secondTenant->setInternal('db_name', $secondDatabaseName);
+    $secondTenant->save();
+    $secondTenant->run(function (): void {
+        $exit = Artisan::call('migrate', [
+            '--database' => 'tenant',
+            '--path' => database_path('migrations/tenant'),
+            '--realpath' => true,
+            '--force' => true,
+        ]);
+
+        if ($exit !== 0) {
+            throw new RuntimeException(trim(Artisan::output()) ?: 'Tenant test migration failed.');
+        }
+    });
 
     tenancy()->initialize($secondTenant);
 
