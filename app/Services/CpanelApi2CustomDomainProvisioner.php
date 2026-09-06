@@ -33,11 +33,12 @@ class CpanelApi2CustomDomainProvisioner implements CustomDomainProvisioner
         }
         $this->cpanel->api2('AddonDomain', 'addaddondomain', ['dir' => $relativeRoot, 'newdomain' => $domain, 'subdomain' => $this->internalSubdomainLabel($domain), 'ftp_is_optional' => 1]);
         $created = null;
-        for ($attempt = 0; $attempt < 4; $attempt++) {
+        for ($attempt = 0; $attempt < 8; $attempt++) {
             $created = $this->domainData($domain);
             if ($created !== null) {
                 break;
-            } usleep(250000);
+            }
+            usleep(250000);
         }
         if ($created === null) {
             throw new RuntimeException("cPanel reported success, but {$domain} is not visible in DomainInfo yet.");
@@ -53,7 +54,8 @@ class CpanelApi2CustomDomainProvisioner implements CustomDomainProvisioner
         } catch (RuntimeException $e) {
             if (str_contains(strtolower($e->getMessage()), 'unable to locate the domain')) {
                 return null;
-            } throw $e;
+            }
+            throw $e;
         }
         $data = $result['data'] ?? null;
 
