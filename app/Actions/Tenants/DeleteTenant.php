@@ -9,6 +9,7 @@ use App\Models\CentralAdmin;
 use App\Models\Tenant;
 use App\Models\TenantDeletionRecord;
 use App\Services\CentralAuditLogger;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use RuntimeException;
 use Throwable;
@@ -86,34 +87,46 @@ class DeleteTenant
             $results['database'] = ['status' => 'not_applicable', 'target' => null];
         }
 
+        $hasWarnings = collect($results)->contains(fn (mixed $result): bool => is_array($result) && ($result['status'] ?? null) === 'failed');
+
         try {
-            $tenant->delete();
-            $results['central_record'] = ['status' => 'deleted', 'target' => $tenantId];
+            DB::connection((string) config('tenancy.database.central_connection'))->transaction(function () use ($tenant, $tenantId, $history, &$results, $hasWarnings): void {
+                $tenant->delete();
+                $results['central_record'] = ['status' => 'deleted', 'target' => $tenantId];
+                $history->update([
+                    'status' => $hasWarnings ? 'completed_with_warnings' : 'completed',
+                    'cleanup_results' => $results,
+                    'completed_at' => now(),
+                ]);
+            });
         } catch (Throwable $e) {
             report($e);
             $results['central_record'] = ['status' => 'failed', 'target' => $tenantId, 'error' => $e->getMessage()];
-            $history->update([
-                'status' => 'failed',
-                'cleanup_results' => $results,
-                'completed_at' => now(),
-            ]);
+
+            try {
+                $history->update([
+                    'status' => 'failed',
+                    'cleanup_results' => $results,
+                    'completed_at' => now(),
+                ]);
+            } catch (Throwable $historyError) {
+                report($historyError);
+            }
+
             throw $e;
         }
 
-        $hasWarnings = collect($results)->contains(fn (mixed $result): bool => is_array($result) && ($result['status'] ?? null) === 'failed');
-        $history->update([
-            'status' => $hasWarnings ? 'completed_with_warnings' : 'completed',
-            'cleanup_results' => $results,
-            'completed_at' => now(),
-        ]);
+        try {
+            $this->audit->log('tenant.deleted', $hasWarnings ? 'Tenant permanently deleted with infrastructure cleanup warnings.' : 'Tenant permanently deleted.', tenantId: $tenantId, context: [
+                'database' => $database,
+                'cleanup_results' => $results,
+                'deletion_record_id' => $history->getKey(),
+            ], admin: $admin);
+        } catch (Throwable $auditError) {
+            report($auditError);
+        }
 
-        $this->audit->log('tenant.deleted', $hasWarnings ? 'Tenant permanently deleted with infrastructure cleanup warnings.' : 'Tenant permanently deleted.', tenantId: $tenantId, context: [
-            'database' => $database,
-            'cleanup_results' => $results,
-            'deletion_record_id' => $history->getKey(),
-        ], admin: $admin);
-
-        return $history->refresh();
+        return $history;
     }
 
     /** @return array{status:string,target:string,error?:string} */
