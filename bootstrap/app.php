@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnsureCentralAdmin;
 use App\Http\Middleware\EnsureCentralDomain;
+use App\Http\Middleware\EnsureCpanelProvisioningReady;
 use App\Http\Middleware\InitializeTenantFromHost;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -14,7 +15,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // Tenant context must be resolved before the web middleware starts
         // sessions so database-backed sessions can remain tenant-local.
         $middleware->prepend(InitializeTenantFromHost::class);
-        $middleware->alias(['central.admin' => EnsureCentralAdmin::class, 'central.domain' => EnsureCentralDomain::class]);
+        $middleware->alias([
+            'central.admin' => EnsureCentralAdmin::class,
+            'central.domain' => EnsureCentralDomain::class,
+            'cpanel.provisioning' => EnsureCpanelProvisioningReady::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(fn (Request $request) => $request->is('api/*') || $request->expectsJson());

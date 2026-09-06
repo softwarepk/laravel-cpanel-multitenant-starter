@@ -33,7 +33,9 @@
         <flux:spacer />
         <span class="text-sm font-medium">{{ $user?->name }}</span>
     </flux:header>
-    {{ $slot }}
+    <flux:main>
+        {{ $slot }}
+    </flux:main>
     @fluxScripts
 </body>
 </html>

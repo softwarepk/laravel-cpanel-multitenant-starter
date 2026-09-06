@@ -56,7 +56,7 @@ Project-specific business modules should be added inside the tenant application,
 
 ## Local first run
 
-Use PHP 8.4 or newer for local development and tests. The central application uses SQLite by default for local development. Production is intended for MySQL/MariaDB on cPanel.
+Use PHP 8.4 or newer for local development and tests. The central application uses SQLite by default for local development. Tenant databases also default to SQLite outside production, while production defaults to MySQL unless `TENANT_DB_DRIVER` is explicitly set.
 
 ```bash
 composer install
@@ -71,7 +71,23 @@ php artisan central:admin
 
 `starter:install` configures the application name, central hostname, tenant platform domain, cPanel document root, and Fortify switches.
 
-Local tenant provisioning through the production cPanel provisioners is not required for normal development or automated tests. Tests use isolated local tenant databases and fake infrastructure adapters where appropriate.
+Start the local server:
+
+```bash
+php artisan serve
+```
+
+The central Control Center is available at `http://127.0.0.1:8000/central`. The central root intentionally does not serve the tenant application.
+
+Create a local tenant without calling cPanel:
+
+```bash
+php artisan tenant:local-create
+```
+
+The interactive command creates a SQLite tenant database under `database/`, registers a hostname such as `acme.localhost`, applies tenant migrations, and creates the initial tenant administrator. With `php artisan serve` still running, open the tenant at a URL such as `http://acme.localhost:8000`.
+
+The Control Center's production tenant-provisioning form is shown only when the MySQL/MariaDB tenant connection and required cPanel settings are configured. In a normal local environment it instead points developers to `tenant:local-create`.
 
 ## Production environment
 
@@ -82,6 +98,7 @@ Important concepts:
 - `CENTRAL_DOMAINS` identifies hostnames that are allowed to serve the Control Center.
 - `TENANT_PLATFORM_DOMAIN` is the root under which permanent tenant hostnames are created, such as `tenant.example.com`.
 - `TENANT_PLATFORM_DOCUMENT_ROOT` points every tenant platform hostname at the same Laravel `public` directory.
+- `TENANT_DB_DRIVER` should be `mysql` or `mariadb` for cPanel production provisioning; production defaults to `mysql` when the variable is omitted.
 - tenant databases use the central cPanel account's configured tenant DB prefix and tenant DB user.
 - `SESSION_DRIVER=database` and `CACHE_STORE=database` preserve the central/tenant database boundary.
 - `QUEUE_CONNECTION=database` keeps queue rows centrally while preserving tenant context in job payloads.
