@@ -87,7 +87,7 @@ class DeleteTenant
             $results['database'] = ['status' => 'not_applicable', 'target' => null];
         }
 
-        $hasWarnings = collect($results)->contains(fn (mixed $result): bool => is_array($result) && ($result['status'] ?? null) === 'failed');
+        $hasWarnings = collect($results)->contains(fn (array $result): bool => $result['status'] === 'failed');
 
         try {
             DB::connection((string) config('tenancy.database.central_connection'))->transaction(function () use ($tenant, $tenantId, $history, &$results, $hasWarnings): void {
