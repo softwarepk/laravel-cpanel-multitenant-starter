@@ -10,12 +10,13 @@ return [
             'driver' => 'database',
             // Queue infrastructure stays central. Stancl records the originating
             // tenant ID in tenant-aware payloads and restores that context when
-            // a worker processes the job.
+            // a worker processes the job. Waiting for commit avoids retaining a
+            // central queue row for tenant work that ultimately rolls back.
             'connection' => env('DB_QUEUE_CONNECTION', env('DB_CONNECTION', 'sqlite')),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
-            'after_commit' => false,
+            'after_commit' => true,
         ],
     ],
 
