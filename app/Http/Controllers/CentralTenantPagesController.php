@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CentralAuditLog;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Services\CentralSettings;
 use App\Services\CpanelProvisioningReadiness;
 use Illuminate\View\View;
@@ -36,10 +37,16 @@ class CentralTenantPagesController extends Controller
     public function show(Tenant $tenant): View
     {
         $tenant->load('domains');
+        $unresolvedDeletion = TenantDeletionRecord::query()
+            ->where('tenant_id', (string) $tenant->getTenantKey())
+            ->whereIn('status', ['started', 'failed'])
+            ->latest('created_at')
+            ->first();
 
         return view('central.tenants.show', [
             'tenant' => $tenant,
             'auditLogs' => CentralAuditLog::query()->with('centralAdmin')->where('tenant_id', (string) $tenant->getTenantKey())->latest('created_at')->limit(20)->get(),
+            'unresolvedDeletion' => $unresolvedDeletion,
             'platformDomain' => (string) config('central.platform.domain'),
             'customDomainDnsTarget' => (string) config('central.custom_domain.dns_target'),
             'platformDocumentRoot' => (string) config('central.platform.document_root'),
