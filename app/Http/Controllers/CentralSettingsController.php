@@ -14,6 +14,10 @@ class CentralSettingsController extends Controller
     {
         return view('central.settings.index', [
             'passwordMinimumLength' => $settings->passwordMinimumLength(),
+            'passwordRequireMixedCase' => $settings->passwordRequireMixedCase(),
+            'passwordRequireNumbers' => $settings->passwordRequireNumbers(),
+            'passwordRequireSymbols' => $settings->passwordRequireSymbols(),
+            'passwordRejectCompromised' => $settings->passwordRejectCompromised(),
             'platformDomain' => (string) config('central.platform.domain'),
             'customDomainDnsTarget' => (string) config('central.custom_domain.dns_target'),
             'platformDocumentRoot' => (string) config('central.platform.document_root'),
@@ -24,10 +28,30 @@ class CentralSettingsController extends Controller
 
     public function update(Request $request, CentralSettings $settings, CentralAuditLogger $audit): RedirectResponse
     {
-        $validated = $request->validate(['password_min_length' => ['required', 'integer', 'min:8', 'max:64']]);
-        $previous = $settings->passwordMinimumLength();
-        $settings->setMany(['password_min_length' => (int) $validated['password_min_length']]);
-        $audit->log('central.settings_updated', 'Central platform settings updated.', context: ['password_min_length' => ['from' => $previous, 'to' => (int) $validated['password_min_length']]], request: $request);
+        $validated = $request->validate([
+            'password_min_length' => ['required', 'integer', 'min:8', 'max:64'],
+        ]);
+
+        $previous = [
+            'password_min_length' => $settings->passwordMinimumLength(),
+            'password_require_mixed_case' => $settings->passwordRequireMixedCase(),
+            'password_require_numbers' => $settings->passwordRequireNumbers(),
+            'password_require_symbols' => $settings->passwordRequireSymbols(),
+            'password_reject_compromised' => $settings->passwordRejectCompromised(),
+        ];
+
+        $values = [
+            'password_min_length' => (int) $validated['password_min_length'],
+            'password_require_mixed_case' => $request->boolean('password_require_mixed_case'),
+            'password_require_numbers' => $request->boolean('password_require_numbers'),
+            'password_require_symbols' => $request->boolean('password_require_symbols'),
+            'password_reject_compromised' => $request->boolean('password_reject_compromised'),
+        ];
+
+        $settings->setMany($values);
+        $audit->log('central.settings_updated', 'Central platform settings updated.', context: [
+            'password_policy' => ['from' => $previous, 'to' => $values],
+        ], request: $request);
 
         return back()->with('status', 'Platform settings saved.');
     }
