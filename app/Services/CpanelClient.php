@@ -13,7 +13,11 @@ class CpanelClient
     /** @param array<string, string|int|bool> $arguments @return array<string, mixed> */
     public function uapi(string $module, string $function, array $arguments = []): array
     {
-        $response = $this->getWithRetry($this->baseUrl().'/execute/'.rawurlencode($module).'/'.rawurlencode($function), $arguments);
+        $response = $this->getWithRetry(
+            $this->baseUrl().'/execute/'.rawurlencode($module).'/'.rawurlencode($function),
+            $arguments,
+            $this->isSafeReadCall('uapi', $module, $function),
+        );
         if (! $response->successful()) {
             throw new RuntimeException('cPanel UAPI request failed with HTTP '.$response->status().'.');
         }
@@ -38,7 +42,11 @@ class CpanelClient
     public function api2(string $module, string $function, array $arguments = []): array
     {
         $query = array_merge(['cpanel_jsonapi_apiversion' => 2, 'cpanel_jsonapi_module' => $module, 'cpanel_jsonapi_func' => $function], $arguments);
-        $response = $this->getWithRetry($this->baseUrl().'/json-api/cpanel', $query);
+        $response = $this->getWithRetry(
+            $this->baseUrl().'/json-api/cpanel',
+            $query,
+            $this->isSafeReadCall('api2', $module, $function),
+        );
         if (! $response->successful()) {
             throw new RuntimeException('cPanel API 2 request failed with HTTP '.$response->status().'.');
         }
@@ -65,21 +73,23 @@ class CpanelClient
     }
 
     /** @param array<string, string|int|bool> $arguments */
-    private function getWithRetry(string $url, array $arguments): Response
+    private function getWithRetry(string $url, array $arguments, bool $retryTransient): Response
     {
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
+        $attempts = $retryTransient ? 3 : 1;
+
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             try {
                 $response = $this->request()->get($url, $arguments);
             } catch (ConnectionException $e) {
-                if ($attempt === 3) {
-                    throw new RuntimeException('cPanel API connection failed after retrying.', previous: $e);
+                if ($attempt === $attempts) {
+                    throw new RuntimeException($retryTransient ? 'cPanel API connection failed after retrying.' : 'cPanel API connection failed.', previous: $e);
                 }
 
                 usleep($attempt * 250000);
                 continue;
             }
 
-            if (($response->serverError() || $response->status() === 429) && $attempt < 3) {
+            if ($retryTransient && ($response->serverError() || $response->status() === 429) && $attempt < $attempts) {
                 usleep($attempt * 250000);
                 continue;
             }
@@ -87,7 +97,19 @@ class CpanelClient
             return $response;
         }
 
-        throw new RuntimeException('cPanel API request failed after retrying.');
+        throw new RuntimeException('cPanel API request failed.');
+    }
+
+    private function isSafeReadCall(string $api, string $module, string $function): bool
+    {
+        $key = strtolower($api.':'.$module.':'.$function);
+
+        return in_array($key, [
+            'uapi:mysql:list_databases',
+            'uapi:domaininfo:list_domains',
+            'uapi:domaininfo:single_domain_data',
+            'api2:addondomain:listaddondomains',
+        ], true);
     }
 
     private function request(): PendingRequest
