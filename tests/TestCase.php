@@ -5,6 +5,7 @@ namespace Tests;
 use App\Http\Middleware\InitializeTenantFromHost;
 use App\Models\Tenant;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Testing\TestResponse;
@@ -151,15 +152,28 @@ abstract class TestCase extends BaseTestCase
                 throw new \RuntimeException("Unable to create tenant test database [{$databasePath}].");
             }
 
-            // TenantCreated runs the starter's tenant migration pipeline once.
-            $this->testTenant = Tenant::create([
+            $this->testTenant = Tenant::withoutEvents(fn (): Tenant => Tenant::create([
                 'id' => 'test-tenant',
                 'name' => 'Test Tenant',
                 'status' => 'active',
                 'provisioning_status' => 'active',
                 'database_name' => $databaseName,
-                'tenancy_db_name' => $databaseName,
-            ]);
+            ]));
+            $this->testTenant->setInternal('db_name', $databaseName);
+            $this->testTenant->save();
+
+            $this->testTenant->run(function (): void {
+                $exit = Artisan::call('migrate', [
+                    '--database' => 'tenant',
+                    '--path' => database_path('migrations/tenant'),
+                    '--realpath' => true,
+                    '--force' => true,
+                ]);
+
+                if ($exit !== 0) {
+                    throw new \RuntimeException(trim(Artisan::output()) ?: 'Tenant test migration failed.');
+                }
+            });
 
             static::$sharedTenantDatabaseMigrated = true;
             static::registerSharedTenantDatabaseCleanup();
@@ -170,8 +184,9 @@ abstract class TestCase extends BaseTestCase
                 'status' => 'active',
                 'provisioning_status' => 'active',
                 'database_name' => $databaseName,
-                'tenancy_db_name' => $databaseName,
             ]));
+            $this->testTenant->setInternal('db_name', $databaseName);
+            $this->testTenant->save();
         }
 
         $this->testTenant->domains()->create([
