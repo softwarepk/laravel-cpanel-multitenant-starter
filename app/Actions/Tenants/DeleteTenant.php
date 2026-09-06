@@ -55,13 +55,17 @@ class DeleteTenant
         $results = [];
 
         if (is_string($platform) && $platform !== '') {
-            $results['platform_domain'] = $this->attemptCleanup($platform, fn (): mixed => $this->platformDomains->deletePlatformDomain($platform));
+            $results['platform_domain'] = $this->attemptCleanup($platform, function () use ($platform): void {
+                $this->platformDomains->deletePlatformDomain($platform);
+            });
         } else {
             $results['platform_domain'] = ['status' => 'not_applicable', 'target' => null];
         }
 
         foreach ($custom as $domain) {
-            $results['custom_domain:'.$domain] = $this->attemptCleanup($domain, fn (): mixed => $this->customDomains->deleteCustomDomain($domain));
+            $results['custom_domain:'.$domain] = $this->attemptCleanup($domain, function () use ($domain): void {
+                $this->customDomains->deleteCustomDomain($domain);
+            });
         }
 
         if (File::isDirectory($storagePath)) {
@@ -75,7 +79,9 @@ class DeleteTenant
         }
 
         if ($database !== '') {
-            $results['database'] = $this->attemptCleanup($database, fn (): mixed => $this->databases->deleteDatabase($database));
+            $results['database'] = $this->attemptCleanup($database, function () use ($database): void {
+                $this->databases->deleteDatabase($database);
+            });
         } else {
             $results['database'] = ['status' => 'not_applicable', 'target' => null];
         }
