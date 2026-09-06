@@ -23,7 +23,7 @@ class CpanelUapiTenantDatabaseProvisioner implements TenantDatabaseProvisioner
         $this->cpanel->uapi('Mysql', 'set_privileges_on_database', [
             'user' => $user,
             'database' => $databaseName,
-            'privileges' => 'ALL',
+            'privileges' => 'ALL PRIVILEGES',
         ]);
     }
 
