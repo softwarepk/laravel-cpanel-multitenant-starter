@@ -6,6 +6,8 @@ The starter assumes a conventional Laravel deployment on a cPanel/Linux account.
 
 The production provisioning layer can automate tenant database and domain setup through cPanel APIs. Keep cPanel credentials scoped as narrowly as practical.
 
+This repository remains a starter rather than a complete production operating model. Review `PRODUCTION-CHECKLIST.md` before a derived application goes live.
+
 ## Required concepts
 
 Configure these environment values for production:
@@ -14,13 +16,15 @@ Configure these environment values for production:
 - tenant platform root domain;
 - tenant platform document root;
 - cPanel host/port/user/token;
-- tenant database prefix;
-- tenant database user;
-- production database connection values.
+- optional tenant database prefix;
+- tenant database username/password;
+- production central database connection values.
 
 The exact keys are defined by `.env.example` and `config/central.php`.
 
-Database sessions and database cache are intentional multi-tenant defaults: tenant resolution occurs before session/cache access, so those records follow the active tenant database. The database queue remains central and carries tenant context in the queued payload.
+`CPANEL_API_USER` is the cPanel account/API identity. `TENANT_DB_USERNAME` is the MySQL/MariaDB user Laravel uses for tenant connections and the same user to which cPanel provisioning grants privileges. There is intentionally no second independently configured cPanel DB-user setting.
+
+Database sessions and database cache are intentional multi-tenant defaults: tenant resolution occurs before session/cache access, so those records follow the active tenant database. The database queue remains central and carries tenant context in the queued payload. Database queue jobs wait for surrounding transactions to commit.
 
 HTTPS enforcement defaults on in production through `APP_ENV=production`. Do not set `FORCE_HTTPS=false` unless the deployment intentionally terminates/enforces HTTPS elsewhere and the application-level redirect is not desired.
 
@@ -34,15 +38,28 @@ acme.tenants.example.com
 
 All tenant platform hostnames point at the same Laravel `public` directory. The hostname selects tenant context; it does not select a different code deployment.
 
-When adding a custom domain, the Control Center verifies/provisions the domain and SSL state before it can become the primary tenant URL.
+When adding a custom domain, the Control Center provisions/verifies the domain and SSL state before it can become the primary tenant URL.
+
+A non-primary custom domain created by the Control Center can also be removed from the tenant screen. The deprovisioner verifies that the cPanel domain still points at the configured application document root before deleting it.
 
 ## Tenant databases
 
-Each tenant receives its own MySQL/MariaDB database. The cPanel provisioning service creates/confirms the database and associates the configured database user.
+Each tenant receives its own MySQL/MariaDB database. The cPanel provisioning service creates/confirms the database and grants the configured `TENANT_DB_USERNAME` access.
 
-Database naming must stay within MySQL/cPanel length and character constraints. The starter validates generated names before provisioning.
+Database names are generated from the tenant ID plus a deterministic short hash. The hash prevents distinct valid IDs such as differently hyphenated labels from collapsing onto one normalized database name. The central `database_name` column is unique.
 
-Do not store tenant database passwords per tenant unless your hosting model explicitly requires separate DB users. The default cPanel pattern is one restricted account DB user with access to the tenant databases provisioned for that application.
+Once a tenant has been assigned a database name, provisioning retries use the persisted identity rather than recalculating it from the current prefix. Changing `CPANEL_TENANT_DB_PREFIX` therefore affects new tenants only.
+
+Do not store tenant database passwords per tenant unless your hosting model explicitly requires separate DB users. The default cPanel pattern is one restricted application DB user with access to the tenant databases provisioned for that application.
+
+## Explicit provisioning paths
+
+Tenant infrastructure is created only through explicit provisioning workflows:
+
+- production-style provisioning through the Control Center / `ProvisionTenant`;
+- local SQLite provisioning through `php artisan tenant:local-create`.
+
+Creating a `Tenant` Eloquent record alone does not automatically create or migrate a database. This avoids accidental infrastructure side effects in future application code.
 
 ## First production setup
 
@@ -68,14 +85,31 @@ Then configure the central hostname/document root in cPanel and confirm that the
 
 Use the Control Center. The provisioning action will:
 
-1. create/confirm the tenant's permanent platform hostname;
-2. create/confirm the tenant database;
-3. run tenant migrations;
-4. create the first tenant administrator;
-5. verify trusted HTTPS;
-6. activate the tenant when ready.
+1. reserve the tenant identity and stable database name;
+2. create/confirm the tenant's permanent platform hostname;
+3. create/confirm the tenant database;
+4. run tenant migrations;
+5. create the first tenant administrator;
+6. verify trusted HTTPS;
+7. activate the tenant when ready.
 
 If HTTPS is not ready yet, the tenant stays in an HTTPS-pending provisioning state. Recheck after AutoSSL/certificate issuance completes.
+
+Provisioning remains synchronous by default to keep the starter simple. A derived application may queue `ProvisionTenant` if its hosting limits make long provisioning requests impractical.
+
+## Transient cPanel behavior
+
+The cPanel HTTP client retries a small number of transient connection, rate-limit, and server failures. Domain provisioning/deprovisioning also allows a short period for cPanel's domain metadata to become consistent after a successful mutation.
+
+Logical cPanel errors are not hidden or retried indefinitely. The Control Center records provisioning failures and allows deliberate retry.
+
+The provisioning-readiness check confirms that required configuration values are populated. It does not prove that the token has every required permission or that the host's AutoSSL/domain/database behavior matches expectations. That must be verified during real staging.
+
+## Custom-domain API compatibility
+
+Some addon-domain operations still require cPanel API 2 because cPanel does not currently expose equivalent UAPI operations. API 2 is deprecated by cPanel, so these calls remain isolated behind application contracts/services.
+
+Re-check compatibility when upgrading cPanel or moving the application to a different hosting provider.
 
 ## Deploying application updates
 
@@ -118,13 +152,25 @@ Do not assume backing up only the central database protects tenant business data
 
 ## Suspension
 
-Suspension is a logical/control-plane operation. It should block tenant application access without destroying database/files/domain records.
+Suspension is a logical/control-plane operation. It blocks tenant application access without destroying database/files/domain records.
 
 Use suspension when access must be stopped temporarily. Do not delete a tenant merely to disable it.
 
 ## Permanent deletion
 
-Tenant deletion may remove database, tenant storage, and platform-domain infrastructure. It is intentionally guarded and should require deliberate administrator action.
+Tenant deletion is deliberately guarded and requires the tenant to be suspended first, exact tenant-ID confirmation, and the current central administrator password.
+
+The cleanup action attempts to remove:
+
+- the permanent platform domain;
+- custom domains created/managed by the Control Center;
+- tenant storage;
+- the tenant database;
+- the central tenant record.
+
+External infrastructure does not form one transaction. A cPanel/filesystem/database cleanup failure therefore does not automatically block central tenant deletion. Instead the central database retains a `tenant_deletion_records` snapshot containing the original tenant/database/domain identifiers and each cleanup result/error. The Control Center displays this under **Central Activity** for manual follow-up.
+
+If the central tenant record itself cannot be deleted, the operation reports failure rather than claiming that deletion completed.
 
 Before permanent deletion:
 
@@ -148,8 +194,16 @@ Never commit:
 
 Use `.env` for deployment-specific credentials and rotate cPanel tokens if they are ever exposed.
 
+For production administration, prefer interactive password entry to CLI `--password` options so secrets do not appear in shell history or process listings.
+
 ## Local development
 
-Normal automated tests should not call a real cPanel account. Infrastructure services are behind contracts so tests can substitute fakes/mocks.
+Normal automated tests do not call a real cPanel account. A local developer should be able to exercise central/tenant routing and database isolation using SQLite without provisioning public DNS or SSL certificates.
 
-A local developer should be able to exercise central/tenant routing and database isolation using local test databases without provisioning public DNS or SSL certificates.
+The local creation command remains intentionally explicit:
+
+```bash
+php artisan tenant:local-create
+```
+
+It creates the SQLite file, central tenant/domain records, runs tenant migrations, and creates the initial tenant administrator without invoking cPanel.

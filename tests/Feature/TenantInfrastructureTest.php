@@ -8,6 +8,11 @@ use Illuminate\Support\Facades\Schema;
 
 class TenantInfrastructureProbeJob implements ShouldQueue
 {
+    // The suite keeps a tenant transaction open. Opt this probe out so the test
+    // can inspect its payload immediately; the test separately asserts that the
+    // application's database queue default is after_commit=true.
+    public bool $afterCommit = false;
+
     public function handle(): void
     {
         // Payload/context is the subject of this test.
@@ -28,7 +33,8 @@ it('stores database queue records centrally while preserving the originating ten
     $centralConnection = (string) config('tenancy.database.central_connection');
 
     expect(Schema::hasTable('jobs'))->toBeFalse()
-        ->and(Schema::connection($centralConnection)->hasTable('jobs'))->toBeTrue();
+        ->and(Schema::connection($centralConnection)->hasTable('jobs'))->toBeTrue()
+        ->and(config('queue.connections.database.after_commit'))->toBeTrue();
 
     Queue::connection('database')->push(new TenantInfrastructureProbeJob);
 

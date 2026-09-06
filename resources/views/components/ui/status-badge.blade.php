@@ -11,9 +11,9 @@
 
     $tone ??= match ($normalized) {
         'active', 'approved', 'complete', 'completed', 'current', 'finalized', 'paid', 'processed', 'success' => 'success',
-        'attention', 'returned', 'reopened', 'warning' => 'warning',
+        'attention', 'completed_with_warnings', 'returned', 'reopened', 'warning' => 'warning',
         'danger', 'error', 'failed', 'rejected', 'voided' => 'danger',
-        'in_progress', 'open', 'pending', 'processing', 'submitted' => 'info',
+        'in_progress', 'open', 'pending', 'processing', 'started', 'submitted' => 'info',
         default => 'neutral',
     };
 

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\CentralAdmin;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rules\Password;
 
 class CreateCentralAdmin extends Command
 {
@@ -24,7 +25,7 @@ class CreateCentralAdmin extends Command
         $validated = Validator::make(['name' => $name, 'email' => $email, 'password' => $password], [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255'],
-            'password' => ['required', 'string', 'min:12'],
+            'password' => ['required', 'string', Password::default()],
         ])->validate();
 
         $admin = CentralAdmin::query()->updateOrCreate(
@@ -33,6 +34,9 @@ class CreateCentralAdmin extends Command
         );
 
         $this->components->info('Central administrator ready: '.$admin->email);
+        if (is_string($this->option('password')) && $this->option('password') !== '') {
+            $this->components->warn('For production use, prefer secure interactive entry instead of passing passwords as command-line arguments.');
+        }
 
         return self::SUCCESS;
     }

@@ -5,12 +5,13 @@ namespace App\Console\Commands;
 use App\Enums\UserRole;
 use App\Models\Domain;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Models\User;
-use App\Services\CentralSettings;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rules\Password;
 use RuntimeException;
 use Throwable;
 
@@ -26,7 +27,7 @@ class CreateLocalTenant extends Command
 
     protected $description = 'Create a local SQLite tenant without calling cPanel';
 
-    public function handle(CentralSettings $settings): int
+    public function handle(): int
     {
         if (! app()->environment(['local', 'testing'])) {
             $this->components->error('tenant:local-create is available only in local or testing environments.');
@@ -49,7 +50,6 @@ class CreateLocalTenant extends Command
         $adminName = trim((string) ($this->option('admin-name') ?: ($interactive ? $this->ask('Administrator name') : '')));
         $adminEmail = strtolower(trim((string) ($this->option('admin-email') ?: ($interactive ? $this->ask('Administrator email') : ''))));
         $adminPassword = (string) ($this->option('admin-password') ?: ($interactive ? $this->secret('Administrator password') : ''));
-        $minimumPasswordLength = $settings->passwordMinimumLength();
 
         $validated = Validator::make([
             'id' => $id,
@@ -64,11 +64,17 @@ class CreateLocalTenant extends Command
             'domain' => ['required', 'string', 'max:253', 'regex:/^(?=.{1,253}\\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/'],
             'admin_name' => ['required', 'string', 'max:120'],
             'admin_email' => ['required', 'email', 'max:255'],
-            'admin_password' => ['required', 'string', 'min:'.$minimumPasswordLength],
+            'admin_password' => ['required', 'string', Password::default()],
         ])->validate();
 
         if (Tenant::query()->whereKey($validated['id'])->exists()) {
             $this->components->error("Tenant [{$validated['id']}] already exists.");
+
+            return self::FAILURE;
+        }
+
+        if (TenantDeletionRecord::query()->where('tenant_id', $validated['id'])->exists()) {
+            $this->components->error("Tenant ID [{$validated['id']}] was used previously and is retained in deletion history. Choose a new tenant ID.");
 
             return self::FAILURE;
         }
@@ -175,6 +181,9 @@ class CreateLocalTenant extends Command
         $this->components->info("Local tenant [{$validated['id']}] is ready.");
         $this->line('Tenant URL: http://'.$validated['domain'].':8000');
         $this->line('Administrator: '.$validated['admin_email']);
+        if (is_string($this->option('admin-password')) && $this->option('admin-password') !== '') {
+            $this->components->warn('Command-line passwords are intended for local automation only; interactive entry is safer.');
+        }
 
         return self::SUCCESS;
     }

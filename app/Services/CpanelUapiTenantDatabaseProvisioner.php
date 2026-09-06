@@ -11,16 +11,20 @@ class CpanelUapiTenantDatabaseProvisioner implements TenantDatabaseProvisioner
 
     public function ensureDatabaseReady(string $databaseName): void
     {
-        $user = (string) config('central.cpanel.database_user');
+        $user = trim((string) config('database.connections.tenant_template.username'));
         if ($user === '') {
-            throw new RuntimeException('CPANEL_DB_USER is not configured.');
+            throw new RuntimeException('TENANT_DB_USERNAME is not configured.');
         }
 
         if (! $this->databaseExists($databaseName)) {
             $this->cpanel->uapi('Mysql', 'create_database', ['name' => $databaseName]);
         }
 
-        $this->cpanel->uapi('Mysql', 'set_privileges_on_database', ['user' => $user, 'database' => $databaseName, 'privileges' => 'ALL']);
+        $this->cpanel->uapi('Mysql', 'set_privileges_on_database', [
+            'user' => $user,
+            'database' => $databaseName,
+            'privileges' => 'ALL PRIVILEGES',
+        ]);
     }
 
     public function deleteDatabase(string $databaseName): void

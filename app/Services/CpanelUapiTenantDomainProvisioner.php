@@ -22,12 +22,24 @@ class CpanelUapiTenantDomainProvisioner implements TenantDomainProvisioner
         }
 
         if (! $this->domainExists($domain)) {
-            $this->cpanel->uapi('SubDomain', 'addsubdomain', ['domain' => $label, 'rootdomain' => $rootDomain, 'dir' => $documentRoot, 'disallowdot' => '1']);
+            $this->cpanel->uapi('SubDomain', 'addsubdomain', [
+                'domain' => $label,
+                'rootdomain' => $rootDomain,
+                'dir' => $documentRoot,
+                'disallowdot' => '1',
+            ]);
         }
 
-        $result = $this->cpanel->uapi('DomainInfo', 'single_domain_data', ['domain' => $domain]);
-        $data = $result['data'] ?? [];
-        if (! is_array($data) || ($data['domain'] ?? null) !== $domain) {
+        $data = null;
+        for ($attempt = 0; $attempt < 8; $attempt++) {
+            $data = $this->domainData($domain);
+            if ($data !== null) {
+                break;
+            }
+            usleep(250000);
+        }
+
+        if ($data === null || ($data['domain'] ?? null) !== $domain) {
             throw new RuntimeException("cPanel did not return the expected domain [{$domain}].");
         }
 
@@ -38,6 +50,23 @@ class CpanelUapiTenantDomainProvisioner implements TenantDomainProvisioner
         if ($actual === '' || $actual !== $expected) {
             throw new RuntimeException("Domain [{$domain}] points to [{$actual}] instead of [{$expected}].");
         }
+    }
+
+    /** @return array<string, mixed>|null */
+    private function domainData(string $domain): ?array
+    {
+        try {
+            $result = $this->cpanel->uapi('DomainInfo', 'single_domain_data', ['domain' => $domain]);
+        } catch (RuntimeException $e) {
+            if (str_contains(strtolower($e->getMessage()), 'unable to locate the domain')) {
+                return null;
+            }
+            throw $e;
+        }
+
+        $data = $result['data'] ?? null;
+
+        return is_array($data) ? $data : null;
     }
 
     private function domainExists(string $domain): bool

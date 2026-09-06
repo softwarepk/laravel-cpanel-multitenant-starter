@@ -3,39 +3,38 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Tenants\ProvisionTenant;
+use App\Contracts\CustomDomainDeprovisioner;
 use App\Contracts\CustomDomainProvisioner;
 use App\Contracts\CustomDomainVerifier;
 use App\Models\Domain;
 use App\Models\Tenant;
 use App\Services\CentralAuditLogger;
-use App\Services\CentralSettings;
 use App\Services\PlatformHttpsVerifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use Throwable;
 
 class CentralTenantController extends Controller
 {
-    public function store(Request $request, ProvisionTenant $provision, CentralAuditLogger $audit, CentralSettings $settings): RedirectResponse|JsonResponse
+    public function store(Request $request, ProvisionTenant $provision, CentralAuditLogger $audit): RedirectResponse|JsonResponse
     {
         $request->merge([
             'id' => strtolower(trim((string) $request->input('id'))),
             'admin_email' => strtolower(trim((string) $request->input('admin_email'))),
         ]);
 
-        $minimumPasswordLength = $settings->passwordMinimumLength();
         $validated = $request->validate([
             'id' => ['required', 'string', 'max:32', 'regex:/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/', 'unique:tenants,id'],
             'name' => ['required', 'string', 'max:120'],
             'admin_name' => ['required', 'string', 'max:120'],
             'admin_email' => ['required', 'email', 'max:255'],
-            'admin_password' => ['required', 'string', 'min:'.$minimumPasswordLength, 'confirmed'],
+            'admin_password' => ['required', 'string', Password::default(), 'confirmed'],
         ], [
             'id.regex' => 'The tenant ID may contain lowercase letters, numbers, and hyphens only, and must start and end with a letter or number.',
-            'admin_password.min' => "The administrator password must be at least {$minimumPasswordLength} characters.",
         ]);
 
         try {
@@ -202,15 +201,36 @@ class CentralTenantController extends Controller
         return back()->with('status', "Primary domain changed to {$domain->domain}. The permanent platform domain remains active.");
     }
 
-    public function retry(Request $request, Tenant $tenant, ProvisionTenant $provision, CentralAuditLogger $audit, CentralSettings $settings): RedirectResponse
+    public function deleteCustomDomain(Request $request, Tenant $tenant, Domain $domain, CustomDomainDeprovisioner $deprovisioner, CentralAuditLogger $audit): RedirectResponse
+    {
+        $this->ensureDomainBelongsToTenant($domain, $tenant);
+        abort_unless($domain->type === 'custom', 409);
+        abort_if($domain->is_primary, 409, 'Make another active domain primary before removing this custom domain.');
+
+        try {
+            $deprovisioner->deleteCustomDomain($domain->domain);
+        } catch (Throwable $e) {
+            report($e);
+            $audit->log('tenant.custom_domain_removal_failed', 'Custom domain could not be removed from cPanel.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $domain->domain, 'error' => $e->getMessage()], request: $request);
+
+            return back()->withErrors(['custom_domain_removal' => 'The custom domain remains registered because cPanel cleanup failed: '.$e->getMessage()]);
+        }
+
+        $domainName = $domain->domain;
+        $domain->delete();
+        $audit->log('tenant.custom_domain_removed', 'Custom domain removed from cPanel and the tenant.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $domainName], request: $request);
+
+        return back()->with('status', "Custom domain {$domainName} was removed.");
+    }
+
+    public function retry(Request $request, Tenant $tenant, ProvisionTenant $provision, CentralAuditLogger $audit): RedirectResponse
     {
         abort_unless($tenant->provisioning_status === 'failed', 409);
         $request->merge(['admin_email' => strtolower(trim((string) $request->input('admin_email')))]);
-        $minimumPasswordLength = $settings->passwordMinimumLength();
         $validated = $request->validate([
             'admin_name' => ['required', 'string', 'max:120'],
             'admin_email' => ['required', 'email', 'max:255'],
-            'admin_password' => ['required', 'string', 'min:'.$minimumPasswordLength, 'confirmed'],
+            'admin_password' => ['required', 'string', Password::default(), 'confirmed'],
         ]);
 
         try {
@@ -225,15 +245,6 @@ class CentralTenantController extends Controller
         $audit->log('tenant.provisioning_retried', 'Tenant provisioning retry completed successfully.', tenantId: (string) $tenant->getTenantKey(), request: $request);
 
         return redirect()->route('central.tenants.show', $tenant)->with('status', 'Tenant provisioning completed.');
-    }
-
-    public function activate(Request $request, Tenant $tenant, CentralAuditLogger $audit): RedirectResponse
-    {
-        abort_unless($tenant->provisioning_status === 'active', 409);
-        $tenant->update(['status' => 'active', 'suspended_at' => null]);
-        $audit->log('tenant.activated', 'Tenant activated.', tenantId: (string) $tenant->getTenantKey(), request: $request);
-
-        return back()->with('status', 'Tenant activated.');
     }
 
     private function provisioningMessage(string $status): string
