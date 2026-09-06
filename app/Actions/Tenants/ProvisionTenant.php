@@ -7,6 +7,7 @@ use App\Contracts\TenantDomainProvisioner;
 use App\Enums\UserRole;
 use App\Models\Domain;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Models\User;
 use App\Services\CentralAuditLogger;
 use App\Services\PlatformHttpsVerifier;
@@ -44,6 +45,12 @@ class ProvisionTenant
 
         $tenant = Tenant::query()->find($tenantId);
         $databaseName = $this->databaseNameFor($tenant, $tenantId);
+
+        if ($tenant === null && TenantDeletionRecord::query()
+            ->where(fn ($query) => $query->where('tenant_id', $tenantId)->orWhere('database_name', $databaseName))
+            ->exists()) {
+            throw new InvalidArgumentException('This tenant identity was used previously and is retained in deletion history. Choose a new tenant ID rather than reusing deleted tenant infrastructure.');
+        }
 
         if (Tenant::query()->where('database_name', $databaseName)->whereKeyNot($tenantId)->exists()) {
             throw new RuntimeException("Tenant database [{$databaseName}] is already assigned to another tenant.");
