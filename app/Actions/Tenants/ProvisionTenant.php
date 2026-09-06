@@ -46,7 +46,7 @@ class ProvisionTenant
         $tenant = Tenant::query()->find($tenantId);
         $databaseName = $this->databaseNameFor($tenant, $tenantId);
 
-        if ($tenant === null && TenantDeletionRecord::query()
+        if (! $tenant instanceof Tenant && TenantDeletionRecord::query()
             ->where(fn ($query) => $query->where('tenant_id', $tenantId)->orWhere('database_name', $databaseName))
             ->exists()) {
             throw new InvalidArgumentException('This tenant identity was used previously and is retained in deletion history. Choose a new tenant ID rather than reusing deleted tenant infrastructure.');
@@ -56,7 +56,7 @@ class ProvisionTenant
             throw new RuntimeException("Tenant database [{$databaseName}] is already assigned to another tenant.");
         }
 
-        if ($tenant === null) {
+        if (! $tenant instanceof Tenant) {
             $tenant = Tenant::withoutEvents(fn (): Tenant => Tenant::create([
                 'id' => $tenantId,
                 'name' => $name,
@@ -78,9 +78,11 @@ class ProvisionTenant
         }
 
         $platform = $tenant->domains()->where('type', 'platform')->first();
-        if ($platform !== null && $platform->domain !== $platformDomain) {
+
+        if ($platform instanceof Domain && $platform->domain !== $platformDomain) {
             throw new InvalidArgumentException("Tenant already has platform domain [{$platform->domain}], expected [{$platformDomain}].");
         }
+
         $platform ??= $tenant->domains()->create([
             'domain' => $platformDomain,
             'type' => 'platform',
@@ -107,6 +109,7 @@ class ProvisionTenant
                     '--realpath' => true,
                     '--force' => true,
                 ]);
+
                 if ($exit !== 0) {
                     throw new RuntimeException(trim(Artisan::output()) ?: 'Tenant migration failed.');
                 }
@@ -128,6 +131,7 @@ class ProvisionTenant
                 'provisioning_error' => null,
                 'suspended_at' => null,
             ]);
+
             if ($this->https->isReady($platformDomain)) {
                 $this->activateAfterHttps($tenant, $platform);
             } else {
@@ -141,6 +145,7 @@ class ProvisionTenant
                 'provisioning_status' => 'failed',
                 'provisioning_error' => Str::limit($e->getMessage(), 4000),
             ]);
+
             throw $e;
         }
     }
@@ -164,6 +169,7 @@ class ProvisionTenant
     {
         $root = $this->platformRootDomain();
         $tenantId = strtolower(trim($tenantId));
+
         if (! preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $tenantId)) {
             throw new InvalidArgumentException('Tenant ID must be a valid DNS label using lowercase letters, numbers, and hyphens.');
         }
@@ -174,6 +180,7 @@ class ProvisionTenant
     private function platformRootDomain(): string
     {
         $domain = strtolower(trim((string) config('central.platform.domain')));
+
         if ($domain === '' || ! preg_match('/^(?=.{1,253}\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $domain)) {
             throw new InvalidArgumentException('TENANT_PLATFORM_DOMAIN is not configured with a valid hostname.');
         }
@@ -184,6 +191,7 @@ class ProvisionTenant
     private function platformDocumentRoot(): string
     {
         $root = trim((string) config('central.platform.document_root'));
+
         if ($root === '') {
             throw new InvalidArgumentException('TENANT_PLATFORM_DOCUMENT_ROOT is not configured.');
         }
@@ -193,7 +201,7 @@ class ProvisionTenant
 
     private function databaseNameFor(?Tenant $tenant, string $tenantId): string
     {
-        if ($tenant === null) {
+        if (! $tenant instanceof Tenant) {
             return $this->databaseNames->forTenant($tenantId);
         }
 
@@ -205,6 +213,7 @@ class ProvisionTenant
         }
 
         $databaseName = $columnName !== '' ? $columnName : $internalName;
+
         if ($databaseName === '') {
             $databaseName = $this->databaseNames->forTenant($tenantId);
             $tenant->database_name = $databaseName;
@@ -217,9 +226,11 @@ class ProvisionTenant
         if ($columnName === '') {
             $tenant->database_name = $databaseName;
         }
+
         if ($internalName === '') {
             $tenant->setInternal('db_name', $databaseName);
         }
+
         if ($tenant->isDirty()) {
             $tenant->save();
         }

@@ -41,8 +41,11 @@ class TenantDeletionRecord extends Model
 
     public function hasCleanupFailures(): bool
     {
-        foreach ((array) $this->cleanup_results as $result) {
-            if (is_array($result) && ($result['status'] ?? null) === 'failed') {
+        /** @var array<string, array{status:string,target:string|null,error?:string}> $results */
+        $results = (array) $this->cleanup_results;
+
+        foreach ($results as $result) {
+            if ($result['status'] === 'failed') {
                 return true;
             }
         }
