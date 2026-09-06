@@ -32,6 +32,7 @@ Route::prefix('central')
             Route::post('tenants/{tenant}/domains', [CentralTenantController::class, 'addCustomDomain'])->name('central.tenants.domains.store');
             Route::post('tenants/{tenant}/domains/{domain}/verify', [CentralTenantController::class, 'verifyCustomDomain'])->name('central.tenants.domains.verify');
             Route::post('tenants/{tenant}/domains/{domain}/primary', [CentralTenantController::class, 'makePrimaryDomain'])->name('central.tenants.domains.primary');
+            Route::delete('tenants/{tenant}/domains/{domain}', [CentralTenantController::class, 'deleteCustomDomain'])->name('central.tenants.domains.destroy');
             Route::post('tenants/{tenant}/retry', [CentralTenantController::class, 'retry'])->name('central.tenants.retry');
             Route::post('tenants/{tenant}/suspend', [CentralTenantLifecycleController::class, 'suspend'])->name('central.tenants.suspend');
             Route::post('tenants/{tenant}/activate', [CentralTenantController::class, 'activate'])->name('central.tenants.activate');
