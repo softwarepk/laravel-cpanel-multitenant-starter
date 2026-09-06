@@ -27,14 +27,17 @@ class CpanelApi2CustomDomainDeprovisioner implements CustomDomainDeprovisioner
             throw new RuntimeException("The cPanel domain {$domain} exists but is not listed as an addon domain. Refusing to remove it automatically.");
         }
 
-        $subdomain = trim((string) ($addon['subdomain'] ?? ''));
-        if ($subdomain === '') {
-            throw new RuntimeException("cPanel did not return the internal subdomain required to remove addon domain {$domain}.");
+        // Despite the API parameter being named "subdomain", cPanel expects the
+        // addon's domain key (for example username_example.com), not the plain
+        // `subdomain` field returned by listaddondomains.
+        $domainKey = trim((string) ($addon['domainkey'] ?? ''));
+        if ($domainKey === '') {
+            throw new RuntimeException("cPanel did not return the domain key required to remove addon domain {$domain}.");
         }
 
         $this->cpanel->api2('AddonDomain', 'deladdondomain', [
             'domain' => $domain,
-            'subdomain' => $subdomain,
+            'subdomain' => $domainKey,
         ]);
 
         for ($attempt = 0; $attempt < 8; $attempt++) {
