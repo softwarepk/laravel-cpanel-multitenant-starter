@@ -97,7 +97,7 @@ class CpanelClient
                 $response = $this->request()->get($url, $arguments);
             } catch (ConnectionException $e) {
                 if ($attempt === $attempts) {
-                    throw new RuntimeException($retryTransient ? 'cPanel API connection failed after retrying.' : 'cPanel API connection failed.', previous: $e);
+                    throw new RuntimeException($retryTransient ? 'cPanel API connection failed after retrying.' : 'cPanel API connection failed.', $e->getCode(), previous: $e);
                 }
 
                 usleep($attempt * 250000);
