@@ -49,10 +49,11 @@ class CpanelApi2PlatformDomainDeprovisioner implements PlatformDomainDeprovision
         }
 
         $this->cpanel->api2('SubDomain', 'delsubdomain', ['domain' => $domain]);
-        for ($attempt = 0; $attempt < 4; $attempt++) {
+        for ($attempt = 0; $attempt < 8; $attempt++) {
             if ($this->domainData($domain) === null) {
                 return;
-            } usleep(250000);
+            }
+            usleep(250000);
         }
         throw new RuntimeException("cPanel reported success, but platform domain [{$domain}] is still present.");
     }
@@ -65,7 +66,8 @@ class CpanelApi2PlatformDomainDeprovisioner implements PlatformDomainDeprovision
         } catch (RuntimeException $e) {
             if (str_contains(strtolower($e->getMessage()), 'unable to locate the domain')) {
                 return null;
-            } throw $e;
+            }
+            throw $e;
         }
         $data = $result['data'] ?? null;
 
