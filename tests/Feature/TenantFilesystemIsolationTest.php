@@ -4,9 +4,10 @@ use App\Models\Tenant;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
-it('changes local storage root when tenant context changes', function (): void {
+it('changes tenant-aware storage roots when tenant context changes', function (): void {
     $firstTenant = $this->testTenant;
-    $firstRoot = Storage::disk('local')->path('');
+    $firstLocalRoot = Storage::disk('local')->path('');
+    $firstPublicRoot = Storage::disk('public')->path('');
 
     $firstConnection = DB::connection();
     while ($firstConnection->transactionLevel() > 0) {
@@ -35,11 +36,15 @@ it('changes local storage root when tenant context changes', function (): void {
     tenancy()->initialize($secondTenant);
 
     try {
-        $secondRoot = Storage::disk('local')->path('');
+        $secondLocalRoot = Storage::disk('local')->path('');
+        $secondPublicRoot = Storage::disk('public')->path('');
 
-        expect($secondRoot)->not->toBe($firstRoot)
-            ->and($firstRoot)->toContain('test-tenant')
-            ->and($secondRoot)->toContain('storage-second');
+        expect($secondLocalRoot)->not->toBe($firstLocalRoot)
+            ->and($secondPublicRoot)->not->toBe($firstPublicRoot)
+            ->and($firstLocalRoot)->toContain('test-tenant')
+            ->and($firstPublicRoot)->toContain('test-tenant')
+            ->and($secondLocalRoot)->toContain('storage-second')
+            ->and($secondPublicRoot)->toContain('storage-second');
     } finally {
         tenancy()->end();
         @unlink($secondDatabasePath);
