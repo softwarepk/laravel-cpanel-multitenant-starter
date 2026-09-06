@@ -11,6 +11,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Validator;
+use RuntimeException;
 use Throwable;
 
 class CreateLocalTenant extends Command
@@ -89,19 +90,28 @@ class CreateLocalTenant extends Command
         $tenant = null;
 
         try {
-            $tenant = Tenant::withoutEvents(fn (): Tenant => Tenant::create([
-                'id' => $validated['id'],
-                'name' => $validated['name'],
-                'status' => 'provisioning',
-                'provisioning_status' => 'database',
-                'database_name' => $databaseName,
-                'initial_admin_email' => $validated['admin_email'],
-                'tenancy_db_name' => $databaseName,
-            ]));
-
-            if (! $tenant->database()->manager()->createDatabase($tenant)) {
-                throw new \RuntimeException('Unable to create the local SQLite tenant database.');
+            if (! is_dir(database_path()) || ! is_writable(database_path())) {
+                throw new RuntimeException('The database directory is not writable: '.database_path());
             }
+
+            if (@file_put_contents($databasePath, '') === false) {
+                throw new RuntimeException("Unable to create the local SQLite database file [{$databasePath}].");
+            }
+
+            $tenant = Tenant::withoutEvents(function () use ($validated, $databaseName): Tenant {
+                $tenant = Tenant::create([
+                    'id' => $validated['id'],
+                    'name' => $validated['name'],
+                    'status' => 'provisioning',
+                    'provisioning_status' => 'database',
+                    'database_name' => $databaseName,
+                    'initial_admin_email' => $validated['admin_email'],
+                ]);
+                $tenant->setInternal('db_name', $databaseName);
+                $tenant->save();
+
+                return $tenant;
+            });
 
             $tenant->domains()->create([
                 'domain' => $validated['domain'],
@@ -123,7 +133,7 @@ class CreateLocalTenant extends Command
                 ]);
 
                 if ($exit !== 0) {
-                    throw new \RuntimeException(trim(Artisan::output()) ?: 'Tenant migration failed.');
+                    throw new RuntimeException(trim(Artisan::output()) ?: 'Tenant migration failed.');
                 }
             });
 
