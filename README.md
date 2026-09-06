@@ -1,6 +1,6 @@
 # Laravel cPanel Multi-Tenant Starter
 
-A reusable Laravel starter for building strongly isolated multi-tenant applications on conventional cPanel/Linux hosting.
+A reusable Laravel starter for building database-per-tenant applications on conventional cPanel/Linux hosting.
 
 ## Purpose
 
@@ -8,10 +8,12 @@ Use this repository when one Laravel deployment must serve multiple organization
 
 This is a sibling of the single-organization starter, not a replacement for it.
 
+This repository is intentionally a **starter**, not a finished production SaaS product. It provides safe structural defaults and clear extension points while leaving application-specific choices such as MFA, stronger password rules, queue topology, backup policy, reverse-proxy configuration, and retention policy to the application built from it. Review `docs/PRODUCTION-CHECKLIST.md` before taking a derived application live.
+
 ## Architecture
 
 - One shared Laravel codebase and release.
-- One central/landlord database for tenant metadata, domains, central administrators, settings, and audit events.
+- One central/landlord database for tenant metadata, domains, central administrators, settings, deletion history, and audit events.
 - One database per tenant for tenant users and application data.
 - Domain/subdomain-first tenant resolution before normal application/session handling.
 - Tenant-aware filesystem and queue context through `stancl/tenancy`.
@@ -20,7 +22,7 @@ This is a sibling of the single-organization starter, not a replacement for it.
 
 The central database must never contain project business data. New project tables normally belong in `database/migrations/tenant` unless they are truly platform-wide control-plane data.
 
-Database-backed sessions and cache are the defaults. Tenant resolution happens before those services are used, so central requests use central tables while tenant requests use the active tenant database. The database queue is deliberately central; `stancl/tenancy` records the originating tenant ID in tenant-aware payloads so workers can restore tenant context.
+Database-backed sessions and cache are the defaults. Tenant resolution happens before those services are used, so central requests use central tables while tenant requests use the active tenant database. The database queue is deliberately central; `stancl/tenancy` records the originating tenant ID in tenant-aware payloads so workers can restore tenant context. Database queue dispatches wait for surrounding transactions to commit.
 
 ## Included control plane
 
@@ -30,13 +32,15 @@ The starter intentionally carries forward the proven administrative decisions in
 - tenant listing and detail screens;
 - tenant provisioning status and retry flow;
 - database-per-tenant provisioning;
+- collision-resistant persistent tenant database identity;
 - platform subdomain provisioning;
 - initial tenant administrator creation;
 - HTTPS readiness checks before activation;
-- custom-domain registration and verification;
-- primary-domain management;
+- custom-domain registration, verification, primary-domain management, and removal;
 - tenant suspension/reactivation;
 - guarded tenant deletion/deprovisioning;
+- durable deletion cleanup history;
+- configurable password policy;
 - central settings;
 - central audit log.
 
@@ -85,13 +89,23 @@ Create a local tenant without calling cPanel:
 php artisan tenant:local-create
 ```
 
-The interactive command creates a SQLite tenant database under `database/`, registers a hostname such as `acme.localhost`, applies tenant migrations, and creates the initial tenant administrator. With `php artisan serve` still running, open the tenant at a URL such as `http://acme.localhost:8000`.
+The interactive command creates a SQLite tenant database under `database/`, registers a hostname such as `acme.localhost`, explicitly applies tenant migrations, and creates the initial tenant administrator. With `php artisan serve` still running, open the tenant at a URL such as `http://acme.localhost:8000`.
+
+Creating a `Tenant` Eloquent model by itself does **not** provision or migrate infrastructure. Production provisioning and local provisioning are explicit operations so future application code cannot accidentally create infrastructure merely by inserting a tenant record.
 
 The Control Center's production tenant-provisioning form is shown only when the MySQL/MariaDB tenant connection and required cPanel settings are configured. In a normal local environment it instead points developers to `tenant:local-create`.
 
+## Password policy
+
+The starter keeps the default password policy intentionally simple: a minimum of eight characters.
+
+Central administrators can configure the common policy under **Control Center → Settings**. Optional rules include mixed case, numbers, symbols, and Laravel's compromised-password check. The configured policy is shared by central administrator creation, initial tenant administrators, registration, resets, and password changes.
+
+A derived production application should deliberately review this setting rather than relying on the starter default.
+
 ## Production environment
 
-At minimum configure the central database and platform host settings in `.env`. cPanel automation additionally requires the cPanel host/user/token and the tenant database/user conventions expected by `config/central.php`.
+At minimum configure the central database and platform host settings in `.env`. cPanel automation additionally requires the cPanel host/user/token and tenant database credentials expected by `config/central.php`.
 
 Important concepts:
 
@@ -99,12 +113,17 @@ Important concepts:
 - `TENANT_PLATFORM_DOMAIN` is the root under which permanent tenant hostnames are created, such as `tenant.example.com`.
 - `TENANT_PLATFORM_DOCUMENT_ROOT` points every tenant platform hostname at the same Laravel `public` directory.
 - `TENANT_DB_DRIVER` should be `mysql` or `mariadb` for cPanel production provisioning; production defaults to `mysql` when the variable is omitted.
-- tenant databases use the central cPanel account's configured tenant DB prefix and tenant DB user.
+- `CPANEL_API_USER` is the cPanel account/API identity.
+- `TENANT_DB_USERNAME` is the MySQL/MariaDB user Laravel uses for tenant databases and the same user to which cPanel provisioning grants database privileges.
+- `CPANEL_TENANT_DB_PREFIX` is an optional naming prefix. Generated database names include a deterministic short hash to prevent lossy-normalization collisions.
+- once a tenant database identity is assigned it is retained for provisioning retries, even if naming configuration later changes.
 - `SESSION_DRIVER=database` and `CACHE_STORE=database` preserve the central/tenant database boundary.
 - `QUEUE_CONNECTION=database` keeps queue rows centrally while preserving tenant context in job payloads.
 - forced HTTPS defaults on when `APP_ENV=production` unless explicitly overridden.
 
 Do not commit cPanel tokens or real credentials.
+
+See `docs/PRODUCTION-CHECKLIST.md` for secure cookies, proxies, MFA considerations, queues, backups, file delivery, staging validation, and retention decisions.
 
 ## Deployment
 
@@ -124,7 +143,17 @@ Central migrations update the control plane. Tenant migrations update the applic
 
 When a new tenant is created through the Control Center, the provisioning workflow creates/confirms the platform hostname and database, applies tenant migrations, creates the initial tenant administrator, and waits for trusted HTTPS before activation.
 
-If the application dispatches asynchronous jobs, arrange a database queue worker. On shared cPanel hosting this may be a managed long-running worker where available, or a cron-driven `php artisan queue:work --stop-when-empty` process.
+Provisioning remains synchronous by default to keep the starter simple. If a derived application regularly exceeds web/PHP request limits during provisioning, `ProvisionTenant` can be moved behind the existing central queue without changing the lifecycle states.
+
+If the application dispatches asynchronous jobs, arrange a database queue worker. On shared cPanel hosting this may be a managed long-running worker where available, or a cron-driven `php artisan queue:work --stop-when-empty --tries=3` process.
+
+## Tenant deletion
+
+Permanent tenant deletion remains explicitly guarded: the tenant must first be suspended and the administrator must confirm the tenant ID and current Control Center password.
+
+Cleanup across cPanel, the filesystem, and MySQL is intentionally best-effort rather than pretending those systems form one transaction. The application attempts to remove the platform domain, managed custom domains, tenant storage, and tenant database. The central tenant record can still be removed if an external cleanup step fails.
+
+A durable deletion record is retained under **Central Activity** with the original tenant/database/domain identifiers and the result/error for each cleanup step so manual follow-up remains possible.
 
 ## Adding project schema
 
@@ -151,7 +180,8 @@ Treat these as architectural invariants:
 5. Queued work that originates inside a tenant must preserve tenant context.
 6. Central routes must never become a back door to tenant business data.
 7. A record identifier from Tenant A must never allow access to Tenant B.
-8. Destructive deprovisioning must remain explicit and guarded.
+8. Tenant database identity must be unique and immutable once assigned.
+9. Destructive deprovisioning must remain explicit and guarded.
 
 ## Verification
 
@@ -163,7 +193,14 @@ composer ci:check
 npm run build
 ```
 
-The test suite must cover both ordinary Laravel behavior and tenant-boundary behavior. See `docs/TENANCY-ARCHITECTURE.md` and `AGENTS.md` before modifying tenancy infrastructure.
+For production release preparation also review:
+
+```bash
+composer audit
+npm audit
+```
+
+The test suite must cover both ordinary Laravel behavior and tenant-boundary behavior. See `docs/TENANCY-ARCHITECTURE.md`, `docs/CPANEL-OPERATIONS.md`, `docs/PRODUCTION-CHECKLIST.md`, and `AGENTS.md` before modifying tenancy infrastructure.
 
 ## Relationship to the other repositories
 
