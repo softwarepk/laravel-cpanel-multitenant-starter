@@ -35,7 +35,7 @@ Route::prefix('central')
             Route::delete('tenants/{tenant}/domains/{domain}', [CentralTenantController::class, 'deleteCustomDomain'])->name('central.tenants.domains.destroy');
             Route::post('tenants/{tenant}/retry', [CentralTenantController::class, 'retry'])->name('central.tenants.retry');
             Route::post('tenants/{tenant}/suspend', [CentralTenantLifecycleController::class, 'suspend'])->name('central.tenants.suspend');
-            Route::post('tenants/{tenant}/activate', [CentralTenantController::class, 'activate'])->name('central.tenants.activate');
+            Route::post('tenants/{tenant}/activate', [CentralTenantLifecycleController::class, 'activate'])->name('central.tenants.activate');
 
             Route::get('activity', [CentralActivityController::class, 'index'])->name('central.activity.index');
             Route::get('settings', [CentralSettingsController::class, 'index'])->name('central.settings.index');
