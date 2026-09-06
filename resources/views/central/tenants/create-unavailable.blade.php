@@ -23,6 +23,7 @@
                     <li class="flex gap-2"><span class="mt-1 text-zinc-400">•</span><span class="font-mono text-xs sm:text-sm">{{ $requirement }}</span></li>
                 @endforeach
             </ul>
+            <p class="mt-5 text-xs leading-5 text-zinc-500">This check confirms that required configuration values are present. It does not prove cPanel permissions, AutoSSL, DNS, document-root behavior, or database access. Complete the real cPanel staging checklist in <span class="font-mono">docs/PRODUCTION-CHECKLIST.md</span> before provisioning production tenants.</p>
         </section>
     </div>
 
