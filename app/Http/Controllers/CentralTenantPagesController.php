@@ -12,7 +12,10 @@ class CentralTenantPagesController extends Controller
 {
     public function index(): View
     {
-        return view('central.tenants.index', ['tenants' => Tenant::query()->with('domains')->orderBy('name')->orderBy('id')->get(), 'platformDomain' => (string) config('central.platform.domain')]);
+        return view('central.tenants.index', [
+            'tenants' => Tenant::query()->with('domains')->orderBy('name')->orderBy('id')->get(),
+            'platformDomain' => (string) config('central.platform.domain'),
+        ]);
     }
 
     public function create(CentralSettings $settings, CpanelProvisioningReadiness $readiness): View
@@ -24,7 +27,10 @@ class CentralTenantPagesController extends Controller
             ]);
         }
 
-        return view('central.tenants.create', ['platformDomain' => (string) config('central.platform.domain'), 'passwordMinimumLength' => $settings->passwordMinimumLength()]);
+        return view('central.tenants.create', [
+            'platformDomain' => (string) config('central.platform.domain'),
+            'passwordRequirements' => $settings->passwordRequirements(),
+        ]);
     }
 
     public function show(Tenant $tenant, CentralSettings $settings): View
@@ -37,7 +43,7 @@ class CentralTenantPagesController extends Controller
             'platformDomain' => (string) config('central.platform.domain'),
             'customDomainDnsTarget' => (string) config('central.custom_domain.dns_target'),
             'platformDocumentRoot' => (string) config('central.platform.document_root'),
-            'passwordMinimumLength' => $settings->passwordMinimumLength(),
+            'passwordRequirements' => $settings->passwordRequirements(),
         ]);
     }
 }
