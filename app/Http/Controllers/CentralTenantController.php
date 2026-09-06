@@ -247,15 +247,6 @@ class CentralTenantController extends Controller
         return redirect()->route('central.tenants.show', $tenant)->with('status', 'Tenant provisioning completed.');
     }
 
-    public function activate(Request $request, Tenant $tenant, CentralAuditLogger $audit): RedirectResponse
-    {
-        abort_unless($tenant->provisioning_status === 'active', 409);
-        $tenant->update(['status' => 'active', 'suspended_at' => null]);
-        $audit->log('tenant.activated', 'Tenant activated.', tenantId: (string) $tenant->getTenantKey(), request: $request);
-
-        return back()->with('status', 'Tenant activated.');
-    }
-
     private function provisioningMessage(string $status): string
     {
         return match ($status) {
