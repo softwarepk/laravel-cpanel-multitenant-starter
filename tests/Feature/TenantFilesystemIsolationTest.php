@@ -22,14 +22,15 @@ it('changes local storage root when tenant context changes', function (): void {
     touch($secondDatabasePath);
     config(['database.connections.tenant_template.database' => $secondDatabasePath]);
 
-    $secondTenant = Tenant::create([
+    $secondTenant = Tenant::withoutEvents(fn (): Tenant => Tenant::create([
         'id' => 'storage-second',
         'name' => 'Storage Second',
         'status' => 'active',
         'provisioning_status' => 'active',
         'database_name' => $secondDatabaseName,
-        'tenancy_db_name' => $secondDatabaseName,
-    ]);
+    ]));
+    $secondTenant->setInternal('db_name', $secondDatabaseName);
+    $secondTenant->save();
 
     tenancy()->initialize($secondTenant);
 
