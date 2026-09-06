@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -11,7 +13,7 @@ class CpanelClient
     /** @param array<string, string|int|bool> $arguments @return array<string, mixed> */
     public function uapi(string $module, string $function, array $arguments = []): array
     {
-        $response = $this->request()->get($this->baseUrl().'/execute/'.rawurlencode($module).'/'.rawurlencode($function), $arguments);
+        $response = $this->getWithRetry($this->baseUrl().'/execute/'.rawurlencode($module).'/'.rawurlencode($function), $arguments);
         if (! $response->successful()) {
             throw new RuntimeException('cPanel UAPI request failed with HTTP '.$response->status().'.');
         }
@@ -36,7 +38,7 @@ class CpanelClient
     public function api2(string $module, string $function, array $arguments = []): array
     {
         $query = array_merge(['cpanel_jsonapi_apiversion' => 2, 'cpanel_jsonapi_module' => $module, 'cpanel_jsonapi_func' => $function], $arguments);
-        $response = $this->request()->get($this->baseUrl().'/json-api/cpanel', $query);
+        $response = $this->getWithRetry($this->baseUrl().'/json-api/cpanel', $query);
         if (! $response->successful()) {
             throw new RuntimeException('cPanel API 2 request failed with HTTP '.$response->status().'.');
         }
@@ -60,6 +62,32 @@ class CpanelClient
         }
 
         return $result;
+    }
+
+    /** @param array<string, string|int|bool> $arguments */
+    private function getWithRetry(string $url, array $arguments): Response
+    {
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                $response = $this->request()->get($url, $arguments);
+            } catch (ConnectionException $e) {
+                if ($attempt === 3) {
+                    throw new RuntimeException('cPanel API connection failed after retrying.', previous: $e);
+                }
+
+                usleep($attempt * 250000);
+                continue;
+            }
+
+            if (($response->serverError() || $response->status() === 429) && $attempt < 3) {
+                usleep($attempt * 250000);
+                continue;
+            }
+
+            return $response;
+        }
+
+        throw new RuntimeException('cPanel API request failed after retrying.');
     }
 
     private function request(): PendingRequest
