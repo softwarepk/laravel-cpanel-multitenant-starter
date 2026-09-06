@@ -48,6 +48,8 @@ Enabling compromised-password checking requires outbound access to Laravel's ext
 
 Tenant database names are generated deterministically with a short hash so distinct valid tenant IDs cannot collapse onto the same database name. Once a tenant has been assigned a database name, retries continue using that persisted identity even if naming configuration changes later.
 
+Deleted tenant IDs/database names remain reserved in central deletion history. Do not plan to recycle tenant identifiers; use a new tenant ID for a new organization.
+
 ## 5. Real cPanel staging validation
 
 Before provisioning production tenants, validate the exact hosting account end to end:
@@ -134,6 +136,8 @@ Deletion is intentionally best-effort across external infrastructure. The applic
 - the central tenant record.
 
 A failure in cPanel/filesystem/database cleanup does not automatically block removal of the central tenant record. A durable deletion record is retained under **Central Activity**, including the tenant/database/domain snapshot and the result/error for each cleanup step.
+
+Deleted tenant and database identities remain reserved. This is intentional: if an external cleanup step left residual database or storage resources, automatically reusing the same deterministic identity could expose old tenant data to a later tenant.
 
 Before production, define the application's own backup, legal-hold, and data-retention policy. Take a final backup before deletion when required.
 
