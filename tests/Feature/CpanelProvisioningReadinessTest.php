@@ -18,11 +18,13 @@ it('recognizes a complete production cpanel provisioning configuration', functio
         'database.connections.tenant_template.password' => 'secret',
         'central.platform.domain' => 'tenants.example.com',
         'central.platform.document_root' => '/home/account/app/public',
-        'central.cpanel.database_user' => 'account_app',
         'central.cpanel.api_host' => 'server.example.com',
         'central.cpanel.api_user' => 'account',
         'central.cpanel.api_token' => 'token',
     ]);
 
-    expect(app(CpanelProvisioningReadiness::class)->isReady())->toBeTrue();
+    $readiness = app(CpanelProvisioningReadiness::class);
+
+    expect($readiness->isReady())->toBeTrue()
+        ->and($readiness->missingRequirements())->not->toContain('CPANEL_DB_USER');
 });
