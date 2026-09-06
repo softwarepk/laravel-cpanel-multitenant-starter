@@ -63,6 +63,27 @@ class CentralSettings
         return $rule;
     }
 
+    /** @return list<string> */
+    public function passwordRequirements(): array
+    {
+        $requirements = ['at least '.$this->passwordMinimumLength().' characters'];
+
+        if ($this->passwordRequireMixedCase()) {
+            $requirements[] = 'uppercase and lowercase letters';
+        }
+        if ($this->passwordRequireNumbers()) {
+            $requirements[] = 'at least one number';
+        }
+        if ($this->passwordRequireSymbols()) {
+            $requirements[] = 'at least one symbol';
+        }
+        if ($this->passwordRejectCompromised()) {
+            $requirements[] = 'not known to be compromised';
+        }
+
+        return $requirements;
+    }
+
     /** @param array<string, string|int|bool|null> $values */
     public function setMany(array $values): void
     {
