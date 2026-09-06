@@ -32,6 +32,8 @@ class ProvisionTenant
     public function handle(string $tenantId, string $name, string $adminName, string $adminEmail, string $adminPassword): Tenant
     {
         $tenantId = strtolower(trim($tenantId));
+        validator(['password' => $adminPassword], ['password' => ['required', 'string', Password::default()]])->validate();
+
         $platformDomain = $this->platformDomainFor($tenantId);
         $rootDomain = $this->platformRootDomain();
         $documentRoot = $this->platformDocumentRoot();
@@ -105,8 +107,6 @@ class ProvisionTenant
 
             $tenant->update(['provisioning_status' => 'administrator']);
             $tenant->run(function () use ($adminName, $adminEmail, $adminPassword): void {
-                validator(['password' => $adminPassword], ['password' => ['required', 'string', Password::default()]])->validate();
-
                 $admin = User::query()->firstOrNew(['email' => $adminEmail]);
                 $admin->name = $adminName;
                 $admin->password = $adminPassword;
