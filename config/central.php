@@ -13,11 +13,10 @@ return [
     ],
 
     'cpanel' => [
-        'database_user' => env('CPANEL_DB_USER'),
         'tenant_database_prefix' => env('CPANEL_TENANT_DB_PREFIX', ''),
         'api_host' => env('CPANEL_API_HOST'),
         'api_port' => (int) env('CPANEL_API_PORT', 2083),
-        'api_user' => env('CPANEL_API_USER', env('CPANEL_DB_USER')),
+        'api_user' => env('CPANEL_API_USER'),
         'api_token' => env('CPANEL_API_TOKEN'),
         'api_connect_timeout' => (int) env('CPANEL_API_CONNECT_TIMEOUT', 5),
         'api_timeout' => (int) env('CPANEL_API_TIMEOUT', 90),
