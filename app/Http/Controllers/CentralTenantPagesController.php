@@ -33,7 +33,7 @@ class CentralTenantPagesController extends Controller
         ]);
     }
 
-    public function show(Tenant $tenant, CentralSettings $settings): View
+    public function show(Tenant $tenant): View
     {
         $tenant->load('domains');
 
@@ -43,7 +43,6 @@ class CentralTenantPagesController extends Controller
             'platformDomain' => (string) config('central.platform.domain'),
             'customDomainDnsTarget' => (string) config('central.custom_domain.dns_target'),
             'platformDocumentRoot' => (string) config('central.platform.document_root'),
-            'passwordRequirements' => $settings->passwordRequirements(),
         ]);
     }
 }
