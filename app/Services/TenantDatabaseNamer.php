@@ -18,7 +18,7 @@ class TenantDatabaseNamer
             throw new InvalidArgumentException('CPANEL_TENANT_DB_PREFIX may contain letters, numbers, and underscores only.');
         }
 
-        $hash = substr(hash('sha256', $tenantId), 0, 10);
+        $hash = substr(hash('sha256', $tenantId), 0, 16);
         $base = str_replace('-', '_', $tenantId);
         $available = 64 - strlen($prefix) - strlen($hash) - 1;
         if ($available < 1) {
