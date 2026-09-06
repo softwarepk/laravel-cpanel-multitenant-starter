@@ -2,12 +2,14 @@
 
 namespace App\Providers;
 
+use App\Contracts\CustomDomainDeprovisioner;
 use App\Contracts\CustomDomainProvisioner;
 use App\Contracts\CustomDomainVerifier;
 use App\Contracts\PlatformDomainDeprovisioner;
 use App\Contracts\TenantDatabaseProvisioner;
 use App\Contracts\TenantDomainProvisioner;
 use App\Services\CentralSettings;
+use App\Services\CpanelApi2CustomDomainDeprovisioner;
 use App\Services\CpanelApi2CustomDomainProvisioner;
 use App\Services\CpanelApi2PlatformDomainDeprovisioner;
 use App\Services\CpanelClient;
@@ -29,6 +31,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(TenantDomainProvisioner::class, CpanelUapiTenantDomainProvisioner::class);
         $this->app->bind(PlatformDomainDeprovisioner::class, CpanelApi2PlatformDomainDeprovisioner::class);
         $this->app->bind(CustomDomainProvisioner::class, CpanelApi2CustomDomainProvisioner::class);
+        $this->app->bind(CustomDomainDeprovisioner::class, CpanelApi2CustomDomainDeprovisioner::class);
         $this->app->bind(CustomDomainVerifier::class, CpanelCustomDomainVerifier::class);
         $this->app->singleton(CentralSettings::class);
     }
@@ -37,12 +40,6 @@ class AppServiceProvider extends ServiceProvider
     {
         Date::use(CarbonImmutable::class);
         DB::prohibitDestructiveCommands(app()->isProduction());
-        Password::defaults(function (): ?Password {
-            if (! app()->isProduction()) {
-                return null;
-            }
-
-            return Password::min(app(CentralSettings::class)->passwordMinimumLength())->mixedCase()->letters()->numbers()->symbols()->uncompromised();
-        });
+        Password::defaults(fn (): Password => app(CentralSettings::class)->passwordRule());
     }
 }
