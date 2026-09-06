@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Actions\Tenants\DeleteTenant;
 use App\Models\CentralAdmin;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Services\CentralAuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -24,6 +25,23 @@ class CentralTenantLifecycleController extends Controller
         $audit->log('tenant.suspended', 'Tenant suspended after administrator confirmation.', tenantId: (string) $tenant->getTenantKey(), request: $request);
 
         return back()->with('status', 'Tenant suspended.');
+    }
+
+    public function activate(Request $request, Tenant $tenant, CentralAuditLogger $audit): RedirectResponse
+    {
+        abort_unless($tenant->provisioning_status === 'active', 409);
+
+        $unresolvedDeletion = TenantDeletionRecord::query()
+            ->where('tenant_id', (string) $tenant->getTenantKey())
+            ->whereIn('status', ['started', 'failed'])
+            ->exists();
+
+        abort_if($unresolvedDeletion, 409, 'This tenant has an unresolved deletion attempt. Retry or resolve deletion cleanup before reactivating it.');
+
+        $tenant->update(['status' => 'active', 'suspended_at' => null]);
+        $audit->log('tenant.activated', 'Tenant activated.', tenantId: (string) $tenant->getTenantKey(), request: $request);
+
+        return back()->with('status', 'Tenant activated.');
     }
 
     public function destroy(Request $request, Tenant $tenant, DeleteTenant $deleteTenant, CentralAuditLogger $audit): JsonResponse|RedirectResponse
