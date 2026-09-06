@@ -117,6 +117,7 @@ Important concepts:
 - `TENANT_DB_USERNAME` is the MySQL/MariaDB user Laravel uses for tenant databases and the same user to which cPanel provisioning grants database privileges.
 - `CPANEL_TENANT_DB_PREFIX` is an optional naming prefix. Generated database names include a deterministic short hash to prevent lossy-normalization collisions.
 - once a tenant database identity is assigned it is retained for provisioning retries, even if naming configuration later changes.
+- deleted tenant IDs/database identities remain reserved in deletion history rather than being automatically recycled.
 - `SESSION_DRIVER=database` and `CACHE_STORE=database` preserve the central/tenant database boundary.
 - `QUEUE_CONNECTION=database` keeps queue rows centrally while preserving tenant context in job payloads.
 - forced HTTPS defaults on when `APP_ENV=production` unless explicitly overridden.
@@ -155,6 +156,8 @@ Cleanup across cPanel, the filesystem, and MySQL is intentionally best-effort ra
 
 A durable deletion record is retained under **Central Activity** with the original tenant/database/domain identifiers and the result/error for each cleanup step so manual follow-up remains possible.
 
+Deleted tenant IDs and database identities are retained as reservations. A new tenant must use a new tenant ID rather than automatically reusing an identifier that may still have residual database or storage infrastructure.
+
 ## Adding project schema
 
 Place tenant-owned schema in:
@@ -181,7 +184,8 @@ Treat these as architectural invariants:
 6. Central routes must never become a back door to tenant business data.
 7. A record identifier from Tenant A must never allow access to Tenant B.
 8. Tenant database identity must be unique and immutable once assigned.
-9. Destructive deprovisioning must remain explicit and guarded.
+9. Deleted tenant identities must not be silently reused.
+10. Destructive deprovisioning must remain explicit and guarded.
 
 ## Verification
 
