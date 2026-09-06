@@ -17,7 +17,6 @@ class CpanelProvisioningReadiness
         $required = [
             'TENANT_PLATFORM_DOMAIN' => config('central.platform.domain'),
             'TENANT_PLATFORM_DOCUMENT_ROOT' => config('central.platform.document_root'),
-            'CPANEL_DB_USER' => config('central.cpanel.database_user'),
             'CPANEL_API_HOST' => config('central.cpanel.api_host'),
             'CPANEL_API_USER' => config('central.cpanel.api_user'),
             'CPANEL_API_TOKEN' => config('central.cpanel.api_token'),
