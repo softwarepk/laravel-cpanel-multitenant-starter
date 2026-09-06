@@ -28,7 +28,8 @@ it('stores database queue records centrally while preserving the originating ten
     $centralConnection = (string) config('tenancy.database.central_connection');
 
     expect(Schema::hasTable('jobs'))->toBeFalse()
-        ->and(Schema::connection($centralConnection)->hasTable('jobs'))->toBeTrue();
+        ->and(Schema::connection($centralConnection)->hasTable('jobs'))->toBeTrue()
+        ->and(config('queue.connections.database.after_commit'))->toBeTrue();
 
     Queue::connection('database')->push(new TenantInfrastructureProbeJob);
 
