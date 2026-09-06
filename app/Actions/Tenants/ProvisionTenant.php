@@ -10,10 +10,13 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Services\CentralAuditLogger;
 use App\Services\PlatformHttpsVerifier;
+use App\Services\TenantDatabaseNamer;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
 use InvalidArgumentException;
+use RuntimeException;
 use Throwable;
 
 class ProvisionTenant
@@ -23,11 +26,12 @@ class ProvisionTenant
         private readonly TenantDomainProvisioner $domains,
         private readonly CentralAuditLogger $audit,
         private readonly PlatformHttpsVerifier $https,
+        private readonly TenantDatabaseNamer $databaseNames,
     ) {}
 
     public function handle(string $tenantId, string $name, string $adminName, string $adminEmail, string $adminPassword): Tenant
     {
-        $databaseName = $this->databaseName($tenantId);
+        $tenantId = strtolower(trim($tenantId));
         $platformDomain = $this->platformDomainFor($tenantId);
         $rootDomain = $this->platformRootDomain();
         $documentRoot = $this->platformDocumentRoot();
@@ -37,6 +41,12 @@ class ProvisionTenant
         }
 
         $tenant = Tenant::query()->find($tenantId);
+        $databaseName = $this->databaseNameFor($tenant, $tenantId);
+
+        if (Tenant::query()->where('database_name', $databaseName)->whereKeyNot($tenantId)->exists()) {
+            throw new RuntimeException("Tenant database [{$databaseName}] is already assigned to another tenant.");
+        }
+
         if ($tenant === null) {
             $tenant = Tenant::withoutEvents(fn (): Tenant => Tenant::create([
                 'id' => $tenantId,
@@ -45,17 +55,29 @@ class ProvisionTenant
                 'provisioning_status' => 'pending',
                 'database_name' => $databaseName,
                 'initial_admin_email' => $adminEmail,
-                'tenancy_db_name' => $databaseName,
             ]));
+            $tenant->setInternal('db_name', $databaseName);
+            $tenant->save();
         } else {
-            $tenant->update(['name' => $name, 'status' => 'provisioning', 'provisioning_status' => 'pending', 'initial_admin_email' => $adminEmail, 'provisioning_error' => null]);
+            $tenant->update([
+                'name' => $name,
+                'status' => 'provisioning',
+                'provisioning_status' => 'pending',
+                'initial_admin_email' => $adminEmail,
+                'provisioning_error' => null,
+            ]);
         }
 
         $platform = $tenant->domains()->where('type', 'platform')->first();
         if ($platform !== null && $platform->domain !== $platformDomain) {
             throw new InvalidArgumentException("Tenant already has platform domain [{$platform->domain}], expected [{$platformDomain}].");
         }
-        $platform ??= $tenant->domains()->create(['domain' => $platformDomain, 'type' => 'platform', 'status' => 'pending', 'is_primary' => true]);
+        $platform ??= $tenant->domains()->create([
+            'domain' => $platformDomain,
+            'type' => 'platform',
+            'status' => 'pending',
+            'is_primary' => true,
+        ]);
 
         try {
             $tenant->update(['provisioning_status' => 'domain']);
@@ -70,14 +92,21 @@ class ProvisionTenant
 
             $tenant->update(['provisioning_status' => 'migrating']);
             $tenant->run(function (): void {
-                $exit = Artisan::call('migrate', ['--database' => 'tenant', '--path' => database_path('migrations/tenant'), '--realpath' => true, '--force' => true]);
+                $exit = Artisan::call('migrate', [
+                    '--database' => 'tenant',
+                    '--path' => database_path('migrations/tenant'),
+                    '--realpath' => true,
+                    '--force' => true,
+                ]);
                 if ($exit !== 0) {
-                    throw new \RuntimeException(trim(Artisan::output()) ?: 'Tenant migration failed.');
+                    throw new RuntimeException(trim(Artisan::output()) ?: 'Tenant migration failed.');
                 }
             });
 
             $tenant->update(['provisioning_status' => 'administrator']);
             $tenant->run(function () use ($adminName, $adminEmail, $adminPassword): void {
+                validator(['password' => $adminPassword], ['password' => ['required', 'string', Password::default()]])->validate();
+
                 $admin = User::query()->firstOrNew(['email' => $adminEmail]);
                 $admin->name = $adminName;
                 $admin->password = $adminPassword;
@@ -86,7 +115,12 @@ class ProvisionTenant
                 $admin->save();
             });
 
-            $tenant->update(['status' => 'provisioning', 'provisioning_status' => 'https_pending', 'provisioning_error' => null, 'suspended_at' => null]);
+            $tenant->update([
+                'status' => 'provisioning',
+                'provisioning_status' => 'https_pending',
+                'provisioning_error' => null,
+                'suspended_at' => null,
+            ]);
             if ($this->https->isReady($platformDomain)) {
                 $this->activateAfterHttps($tenant, $platform);
             } else {
@@ -95,7 +129,11 @@ class ProvisionTenant
 
             return $tenant->refresh();
         } catch (Throwable $e) {
-            $tenant->update(['status' => 'failed', 'provisioning_status' => 'failed', 'provisioning_error' => Str::limit($e->getMessage(), 4000)]);
+            $tenant->update([
+                'status' => 'failed',
+                'provisioning_status' => 'failed',
+                'provisioning_error' => Str::limit($e->getMessage(), 4000),
+            ]);
             throw $e;
         }
     }
@@ -103,7 +141,13 @@ class ProvisionTenant
     public function activateAfterHttps(Tenant $tenant, Domain $platform): Tenant
     {
         $platform->update(['status' => 'active', 'ssl_verified_at' => now(), 'is_primary' => true]);
-        $tenant->update(['status' => 'active', 'provisioning_status' => 'active', 'provisioning_error' => null, 'provisioned_at' => now(), 'suspended_at' => null]);
+        $tenant->update([
+            'status' => 'active',
+            'provisioning_status' => 'active',
+            'provisioning_error' => null,
+            'provisioned_at' => now(),
+            'suspended_at' => null,
+        ]);
         $this->audit->log('tenant.platform_https_ready', 'Trusted HTTPS certificate confirmed; tenant activated.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $platform->domain]);
 
         return $tenant->refresh();
@@ -140,15 +184,39 @@ class ProvisionTenant
         return $root;
     }
 
-    private function databaseName(string $tenantId): string
+    private function databaseNameFor(?Tenant $tenant, string $tenantId): string
     {
-        $prefix = (string) config('central.cpanel.tenant_database_prefix');
-        $suffix = Str::of($tenantId)->lower()->replaceMatches('/[^a-z0-9_]+/', '_')->trim('_')->value();
-        $name = $prefix.$suffix;
-        if ($name === '' || strlen($name) > 64 || ! preg_match('/^[A-Za-z0-9_]+$/', $name)) {
-            throw new InvalidArgumentException('Generated tenant database name is invalid.');
+        if ($tenant === null) {
+            return $this->databaseNames->forTenant($tenantId);
         }
 
-        return $name;
+        $columnName = trim((string) $tenant->database_name);
+        $internalName = trim((string) $tenant->getInternal('db_name'));
+
+        if ($columnName !== '' && $internalName !== '' && $columnName !== $internalName) {
+            throw new RuntimeException("Tenant database identity is inconsistent: [{$columnName}] does not match [{$internalName}].");
+        }
+
+        $databaseName = $columnName !== '' ? $columnName : $internalName;
+        if ($databaseName === '') {
+            $databaseName = $this->databaseNames->forTenant($tenantId);
+            $tenant->database_name = $databaseName;
+            $tenant->setInternal('db_name', $databaseName);
+            $tenant->save();
+
+            return $databaseName;
+        }
+
+        if ($columnName === '') {
+            $tenant->database_name = $databaseName;
+        }
+        if ($internalName === '') {
+            $tenant->setInternal('db_name', $databaseName);
+        }
+        if ($tenant->isDirty()) {
+            $tenant->save();
+        }
+
+        return $databaseName;
     }
 }
