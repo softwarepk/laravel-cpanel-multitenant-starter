@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Enums\UserRole;
 use App\Models\Domain;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -68,6 +69,12 @@ class CreateLocalTenant extends Command
 
         if (Tenant::query()->whereKey($validated['id'])->exists()) {
             $this->components->error("Tenant [{$validated['id']}] already exists.");
+
+            return self::FAILURE;
+        }
+
+        if (TenantDeletionRecord::query()->where('tenant_id', $validated['id'])->exists()) {
+            $this->components->error("Tenant ID [{$validated['id']}] was used previously and is retained in deletion history. Choose a new tenant ID.");
 
             return self::FAILURE;
         }
