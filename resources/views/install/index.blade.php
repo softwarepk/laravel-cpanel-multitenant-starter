@@ -62,7 +62,6 @@
         .summary dt, .summary dd { margin: 0; padding: 11px 13px; border-bottom: 1px solid #edf0f4; }
         .summary dt { background: #f8f9fb; font-size: 12px; color: #667085; font-weight: 750; }
         .summary dd { font-size: 13px; word-break: break-word; }
-        .summary dt:last-of-type, .summary dd:last-of-type { border-bottom: 0; }
         .queue-box { border: 1px solid #dce2ea; border-radius: 11px; padding: 18px; background: #f9fafb; }
         .queue-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 800; margin-bottom: 12px; }
         code { background: #f0f2f5; border-radius: 5px; padding: 2px 5px; }
@@ -83,6 +82,9 @@
     @if ($pending)
         <div class="alert alert-warn" style="margin-top:20px"><strong>Resuming an incomplete installation.</strong> Existing cPanel resources will be verified and reused where possible. Secret fields are intentionally not redisplayed.</div>
     @endif
+    @if ($globalError)
+        <div class="alert alert-error" style="margin-top:20px"><strong>Installation did not complete.</strong><br>{{ $globalError }}<br><span style="font-size:12px">Re-enter the secret fields as you continue; secrets are never redisplayed after a failed or interrupted submission.</span></div>
+    @endif
 
     <div class="shell">
         <nav class="steps" aria-label="Installation progress">
@@ -92,7 +94,7 @@
         </nav>
 
         <div class="content">
-            <form id="installer-form" method="post" action="/install" autocomplete="off">
+            <form id="installer-form" method="post" action="/install" autocomplete="off" novalidate>
                 <section class="card" data-step-panel="1">
                     <div class="section-head">
                         <div><div class="eyebrow">Step 1 of 7</div><h2>Environment check</h2><p class="section-copy">Confirm that Laravel can safely complete setup on this hosting account before any credentials or database changes are submitted.</p></div>
@@ -202,9 +204,6 @@
 
                 <section class="card" data-step-panel="7">
                     <div class="section-head"><div><div class="eyebrow">Step 7 of 7</div><h2>Review &amp; install</h2><p class="section-copy">Review the non-secret deployment details before the installer creates or verifies cPanel resources and writes the production environment.</p></div></div>
-                    @if ($globalError)
-                        <div class="alert alert-error"><strong>Installation did not complete.</strong><br>{{ $globalError }}</div>
-                    @endif
                     <dl class="summary">
                         <dt>Application</dt><dd data-review="app_name"></dd>
                         <dt>Control Center</dt><dd data-review="app_url"></dd>
