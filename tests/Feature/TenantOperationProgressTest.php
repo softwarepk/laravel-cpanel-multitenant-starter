@@ -1,7 +1,30 @@
 <?php
 
-use App\Http\Controllers\CentralTenantLifecycleController;
+use App\Http\Controllers\QueuedTenantDeletionController;
+use App\Http\Controllers\QueuedTenantProvisioningController;
 use App\Models\TenantDeletionRecord;
+
+it('reports queued deletion before background cleanup starts', function (): void {
+    TenantDeletionRecord::query()->create([
+        'tenant_id' => 'queued-tenant',
+        'tenant_name' => 'Queued Tenant',
+        'database_name' => 'tenant_queued',
+        'platform_domain' => 'queued.example.test',
+        'custom_domains' => [],
+        'status' => 'started',
+        'cleanup_results' => [],
+    ]);
+
+    $data = app(QueuedTenantDeletionController::class)
+        ->deletionStatus('queued-tenant')
+        ->getData(true);
+
+    expect($data['status'])->toBe('started');
+    expect($data['progress'])->toBe(8);
+    expect($data['message'])->toBe('Queued for background deletion…');
+    expect($data['completed'])->toBeFalse();
+    expect($data['failed'])->toBeFalse();
+});
 
 it('reports deletion progress from durable cleanup history', function (): void {
     $history = TenantDeletionRecord::query()->create([
@@ -16,7 +39,7 @@ it('reports deletion progress from durable cleanup history', function (): void {
         ],
     ]);
 
-    $controller = app(CentralTenantLifecycleController::class);
+    $controller = app(QueuedTenantDeletionController::class);
     $data = $controller->deletionStatus('progress-tenant')->getData(true);
 
     expect($data['status'])->toBe('started');
@@ -56,7 +79,7 @@ it('reports completed deletion progress after the tenant record is gone', functi
         'completed_at' => now(),
     ]);
 
-    $data = app(CentralTenantLifecycleController::class)
+    $data = app(QueuedTenantDeletionController::class)
         ->deletionStatus('deleted-tenant')
         ->getData(true);
 
@@ -84,7 +107,7 @@ it('does not confuse an older clean deletion with deletion of a recreated tenant
         'completed_at' => now(),
     ]);
 
-    $data = app(CentralTenantLifecycleController::class)
+    $data = app(QueuedTenantDeletionController::class)
         ->deletionStatus((string) $this->testTenant->getTenantKey())
         ->getData(true);
 
@@ -115,7 +138,7 @@ it('allows identity reuse only after a clean completed deletion', function (): v
     expect($started->blocksIdentityReuse())->toBeTrue();
 });
 
-it('releases a stale started deletion instead of leaving the page blocked forever', function (): void {
+it('marks a stale queued deletion failed instead of leaving the page blocked forever', function (): void {
     $history = TenantDeletionRecord::query()->create([
         'tenant_id' => 'stale-tenant',
         'tenant_name' => 'Stale Tenant',
@@ -127,15 +150,36 @@ it('releases a stale started deletion instead of leaving the page blocked foreve
     ]);
 
     $history->timestamps = false;
-    $history->updated_at = now()->subMinutes(10);
+    $history->updated_at = now()->subMinutes(15);
     $history->save();
 
-    $data = app(CentralTenantLifecycleController::class)
+    $data = app(QueuedTenantDeletionController::class)
         ->deletionStatus('stale-tenant')
         ->getData(true);
 
-    expect($data['status'])->toBe('stale');
+    expect($data['status'])->toBe('failed');
     expect($data['failed'])->toBeTrue();
     expect($data['completed'])->toBeFalse();
-    expect($data['message'])->toContain('may have stopped');
+    expect($data['message'])->toContain('stopped reporting progress');
+    expect($history->refresh()->status)->toBe('failed');
+});
+
+it('marks stranded provisioning failed so it can be safely retried', function (): void {
+    $tenant = $this->testTenant;
+    $tenant->update([
+        'status' => 'provisioning',
+        'provisioning_status' => 'domain',
+        'provisioning_error' => null,
+    ]);
+    $tenant->timestamps = false;
+    $tenant->updated_at = now()->subMinutes(15);
+    $tenant->save();
+
+    $data = app(QueuedTenantProvisioningController::class)
+        ->provisioningStatus((string) $tenant->getTenantKey())
+        ->getData(true);
+
+    expect($data['provisioning_status'])->toBe('failed');
+    expect($data['message'])->toBe('Provisioning failed.');
+    expect($tenant->refresh()->provisioning_error)->toContain('stopped reporting progress');
 });
