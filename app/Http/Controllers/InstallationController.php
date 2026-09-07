@@ -82,6 +82,54 @@ class InstallationController extends Controller
         ]);
     }
 
+    public function checkDatabase(Request $request): Response
+    {
+        if (! $this->state->requiresInstallation()) {
+            return response()->json(['message' => 'This deployment is already installed.'], 409);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'cpanel_host' => ['required', 'string', 'max:253', 'regex:/^[A-Za-z0-9.-]+$/'],
+            'cpanel_port' => ['required', 'integer', 'in:2083'],
+            'cpanel_user' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9_]+$/'],
+            'cpanel_token' => ['required', 'string', 'min:20', 'max:1024'],
+            'db_host' => ['required', 'string', 'max:253'],
+            'db_port' => ['required', 'integer', 'between:1,65535'],
+            'central_db_name' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_]+$/'],
+            'central_db_user' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9_]+$/'],
+            'central_db_password' => ['required', 'string', 'min:12', 'max:255'],
+            'tenant_db_host' => ['required', 'string', 'max:253'],
+            'tenant_db_port' => ['required', 'integer', 'between:1,65535'],
+            'tenant_db_user' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9_]+$/', 'different:central_db_user'],
+            'tenant_db_password' => ['required', 'string', 'min:12', 'max:255'],
+            'tenant_db_prefix' => ['required', 'string', 'max:46', 'regex:/^[A-Za-z0-9_]+$/'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Review the database fields and try again.',
+                'errors' => $validator->errors()->toArray(),
+            ], 422);
+        }
+
+        try {
+            $result = $this->installer->verifyDatabaseConfiguration($validator->validated());
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Database configuration verified. No database resources were changed by this check.',
+            'database_host' => $result['database_host'],
+            'checks' => $result['checks'],
+        ]);
+    }
+
     public function store(Request $request): Response
     {
         if (! $this->state->requiresInstallation()) {
