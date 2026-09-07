@@ -7,7 +7,7 @@ use Throwable;
 
 class QueueCronInstaller
 {
-    private const MARKER_PREFIX = 'laravel-cpanel-multitenant-starter-queue';
+    private const string MARKER_PREFIX = 'laravel-cpanel-multitenant-starter-queue';
 
     /**
      * @return array{
