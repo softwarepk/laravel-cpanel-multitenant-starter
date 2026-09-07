@@ -20,7 +20,8 @@ The central database contains only platform/control-plane data such as:
 - central settings;
 - central audit logs;
 - tenant deletion cleanup history;
-- provisioning/lifecycle metadata.
+- provisioning/lifecycle metadata;
+- central queue records.
 
 It must not contain project business records or tenant users.
 
@@ -50,7 +51,7 @@ Production database names are generated from the tenant ID plus a deterministic 
 
 Once a database name is assigned to a tenant, provisioning retries use the persisted identity. Later changes to `CPANEL_TENANT_DB_PREFIX` apply to new tenants only and do not silently move existing tenants to a different database.
 
-Deleted tenant IDs and their database identities remain reserved in deletion history and are not automatically reusable. This avoids reconnecting a future tenant to residual database/storage infrastructure after a partial external cleanup. Use a new tenant ID for a new organization rather than recycling a deleted identifier.
+Deletion history protects tenant/database identity reuse. The latest matching deletion record blocks reuse while cleanup is `started`, `failed`, `completed_with_warnings`, or otherwise contains failed cleanup results. Reuse is allowed only after the latest matching deletion completed cleanly, so a new tenant cannot silently inherit residual database/storage infrastructure.
 
 The `TENANT_DB_USERNAME` setting is the database user Laravel uses for tenant connections and the same user to which cPanel provisioning grants access.
 
@@ -62,6 +63,7 @@ Tenant requests are host driven. Conceptually:
 request host
     -> determine whether host is central or tenant
     -> resolve tenant by domain/subdomain
+    -> require an active tenant/domain pair
     -> initialize tenancy
        - switch DB connection
        - switch filesystem context
@@ -95,7 +97,9 @@ Custom domains may also be attached. Domain records carry lifecycle/verification
 
 The platform hostname is retained as an operational fallback even when a custom domain becomes primary.
 
-Custom domains created through the Control Center are treated as platform-managed infrastructure. A non-primary custom domain can be removed through the Control Center, which verifies the cPanel document root before deleting it.
+Custom domains are managed from the central Control Center. A non-primary custom domain can be removed through the Control Center, which verifies the cPanel document root before deleting it.
+
+Domain/configuration mutations are server-side guarded by tenant lifecycle state. Hiding controls in the UI is not considered sufficient protection: configuration is blocked while provisioning is incomplete, deletion is running, or deletion cleanup remains unresolved.
 
 ## Explicit provisioning boundary
 
@@ -103,14 +107,16 @@ Creating a `Tenant` Eloquent model is a control-plane database operation only. I
 
 There are two explicit provisioning paths in the starter:
 
-1. `ProvisionTenant` for production-style cPanel provisioning;
+1. queued production-style provisioning initiated from the Control Center and executed by `ProvisionTenant`;
 2. `tenant:local-create` for local/testing SQLite provisioning.
 
 This is intentional. Future application code should not be able to create a database or run migrations merely because it inserted a tenant model.
 
 ## Tenant lifecycle
 
-Provisioning is an explicit stateful workflow. The generic sequence is:
+Production tenant provisioning is an explicit **queued** stateful workflow. The browser request reserves the tenant identity and stable database name, assigns a provisioning-operation generation ID, encrypts the temporary tenant-admin password for the queue payload, and dispatches the background job.
+
+The generic sequence is:
 
 1. reserve tenant metadata and stable database identity centrally;
 2. create or confirm the platform hostname;
@@ -120,21 +126,21 @@ Provisioning is an explicit stateful workflow. The generic sequence is:
 6. wait for trusted HTTPS;
 7. activate the tenant.
 
-Failures are recorded as provisioning failures and may be retried. A retry preserves the existing database identity.
+Provisioning progress is persisted centrally so browser navigation does not stop the operation. A provisioning generation ID is revalidated during the workflow so an older/stale job cannot continue into later stages after a newer retry takes ownership.
 
-Provisioning is synchronous in the starter for simplicity. A derived application can place `ProvisionTenant` behind the central queue if hosting execution limits make that necessary; the state model does not depend on synchronous execution.
+The tenant-operation jobs have a 600-second timeout. The database queue reservation (`retry_after`) must remain comfortably longer; the starter default is 900 seconds. The stale-operation recovery window is intentionally longer again so normal worker timeout/reservation boundaries are not mistaken for abandoned work.
+
+HTTPS verification may activate a tenant only while that tenant is explicitly in `status=provisioning` and `provisioning_status=https_pending`. HTTPS rechecks must never reactivate a suspended, failed, or deleting tenant; ordinary reactivation remains a separate lifecycle action.
 
 Suspension is a reversible control-plane state. Suspended tenants must not be allowed to use the tenant application.
 
-Permanent deletion is destructive infrastructure work and must remain guarded. Do not wire database/domain destruction directly to Eloquent model deletion events.
+Permanent deletion is destructive infrastructure work and must remain guarded. Operational tenants must first be suspended; tenants whose provisioning failed may enter cleanup directly. Do not wire database/domain destruction directly to Eloquent model deletion events.
 
 ## Deletion history and partial cleanup
 
 cPanel, MySQL, the filesystem, and the central database do not form one transaction. The starter therefore does not pretend tenant deletion can be atomically rolled back across all of them.
 
-Deletion attempts cleanup of the platform domain, platform-managed custom domains, tenant storage, and tenant database. External cleanup failures are recorded and do not automatically prevent removal of the central tenant record.
-
-Before cleanup begins, a central `tenant_deletion_records` snapshot preserves:
+Permanent deletion is queued. Before dispatch, a durable central `tenant_deletion_records` snapshot preserves:
 
 - tenant ID/name;
 - database name;
@@ -142,9 +148,13 @@ Before cleanup begins, a central `tenant_deletion_records` snapshot preserves:
 - custom domains;
 - initiating central administrator.
 
-The completed record stores the result/error for every cleanup step and remains available under Central Activity after the tenant record itself is gone. If deletion of the central tenant record fails, the overall operation is reported as failed.
+The deletion job attempts cleanup of the platform domain, platform-managed custom domains, tenant storage, tenant database, and finally the central tenant record. Cleanup results are persisted after each external stage.
 
-Deletion history also reserves the deleted tenant/database identity so a later tenant cannot accidentally inherit residual resources with the same deterministic name or tenant storage suffix.
+A running deletion revalidates that its deletion record is still the current active operation before beginning each later destructive stage. If stale recovery or a newer attempt retires the old record, the older job must stop rather than continue deleting infrastructure.
+
+External cleanup failures are recorded and do not automatically prevent removal of the central tenant record. The completed record stores the result/error for every cleanup step and remains available under Central Activity after the tenant record itself is gone. If deletion of the central tenant record fails, the overall operation is reported as failed.
+
+A clean completed deletion permits deliberate tenant-ID reuse. Failed, warning-bearing, or unresolved deletion history continues to reserve the tenant/database identity.
 
 Derived applications remain responsible for their own backup, retention, and legal-hold policy.
 
@@ -166,9 +176,9 @@ Database-backed sessions and cache are the starter defaults. Both follow Laravel
 
 Queue infrastructure is intentionally different: the database queue remains central. The queue connection is pinned to the configured central connection while `stancl/tenancy` adds the originating tenant key to tenant-aware job payloads and restores tenant context when the worker executes the job. Tenant databases therefore do not need a `jobs` table.
 
-Database queue dispatch uses `after_commit=true`, preventing a central queue row from being retained for tenant work that was dispatched inside a transaction that later rolled back.
+The built-in tenant provisioning and permanent-deletion workflows themselves use this central queue, so a queue worker is required in production. Database queue dispatch uses `after_commit=true`, preventing a central queue row from being retained for tenant work dispatched inside a transaction that later rolls back.
 
-If a project changes session, cache, or queue backends, tenant isolation must be re-verified for the new backend rather than assuming the same guarantees carry over automatically.
+If a project changes session, cache, or queue backends, tenant isolation and the built-in lifecycle jobs must be re-verified for the new backend rather than assuming the same guarantees carry over automatically.
 
 ## Migrations and deployment
 
@@ -193,6 +203,8 @@ php artisan tenants:migrate --force
 
 New application tables should default to tenant migrations. Central migrations should be rare and reserved for platform-wide tenancy/control-plane metadata.
 
+Long-running queue workers must be restarted after code/config deployments.
+
 ## Infrastructure isolation boundary
 
 This starter provides strong **logical/data isolation** inside a shared Laravel deployment. Tenants have separate databases, users, files, and tenant-aware runtime context.
@@ -203,19 +215,19 @@ If a future regulatory/security requirement says that compromise of the shared P
 
 ## Security review checklist
 
-For every new tenant-facing feature, test the hostile cases, not only normal navigation:
+For every new tenant-facing or control-plane feature, test the hostile cases, not only normal navigation:
 
 - guessed record IDs;
 - copied URLs from another tenant;
 - attachment/download URLs;
 - exports/reports;
-- queued jobs;
+- queued jobs and stale job generations;
 - scheduled commands;
 - cache keys;
 - custom-domain aliases;
-- suspended tenants;
+- suspended/deleting/failed tenants;
 - central-host access to tenant routes;
 - direct public-file paths;
 - any code that creates or mutates tenant control-plane records.
 
-The success criterion is simple: knowing another tenant's identifiers must not provide a path to its data.
+The success criterion is simple: knowing another tenant's identifiers must not provide a path to its data, and stale lifecycle work must not regain authority after a newer operation takes ownership.
