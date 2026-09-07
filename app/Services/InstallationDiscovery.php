@@ -62,7 +62,7 @@ class InstallationDiscovery
             $this->check('Current request uses HTTPS', $request->isSecure(), $request->getScheme().'://'.$host),
         ];
 
-        return compact('defaults', 'checks');
+        return ['defaults' => $defaults, 'checks' => $checks];
     }
 
     private function detectAccountUser(): string
@@ -109,7 +109,7 @@ class InstallationDiscovery
     /** @return array{label:string,ok:bool,detail:string} */
     private function check(string $label, bool $ok, string $detail): array
     {
-        return compact('label', 'ok', 'detail');
+        return ['label' => $label, 'ok' => $ok, 'detail' => $detail];
     }
 
     private function environmentWritable(): bool
