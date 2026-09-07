@@ -25,11 +25,11 @@
     const form = document.getElementById('tenant-delete-form');
     const overlayId = 'tenant-delete-progress';
     const errors = document.getElementById('deletion-errors');
-    const tenantId = @json((string) $tenant->getTenantKey());
     const statusUrl = @json(route('central.tenants.deletion.status', ['tenantId' => (string) $tenant->getTenantKey()]));
     const resumeDeletion = @json($unresolvedDeletion?->status === 'started');
 
     let busy = false;
+    let requestInFlight = false;
     let pollTimer = null;
 
     const showProgress = (data = {}) => {
@@ -49,6 +49,7 @@
 
     const finishAndRedirect = (url, message) => {
         busy = false;
+        requestInFlight = false;
         window.clearTimeout(pollTimer);
         showProgress({completed:true, progress:100, message:message || 'Tenant deletion completed. Opening the tenant list…'});
         window.setTimeout(() => window.location.assign(url || @json(route('central.tenants.index'))), 650);
@@ -57,6 +58,7 @@
     const fail = (message) => {
         if (!busy) return;
         busy = false;
+        requestInFlight = false;
         window.clearTimeout(pollTimer);
         window.ControlCenterOperation.end(overlayId);
         if (errors) {
@@ -71,10 +73,10 @@
         try {
             const response = await fetch(statusUrl, {headers:{Accept:'application/json'}, cache:'no-store'});
             const data = await response.json();
-            showProgress(data);
 
+            if (!(requestInFlight && data.failed)) showProgress(data);
             if (data.completed) return finishAndRedirect(data.redirect, data.message);
-            if (data.failed) return fail(data.message);
+            if (data.failed && !requestInFlight) return fail(data.message);
         } catch (_) {
             // A transient status request failure should not interrupt deletion.
         }
@@ -93,6 +95,7 @@
             }
 
             busy = true;
+            requestInFlight = true;
             window.ControlCenterOperation.begin(overlayId, {
                 eyebrow: 'Permanent deletion',
                 title: 'Deleting tenant',
@@ -108,10 +111,12 @@
                     headers: {Accept:'application/json'},
                 });
                 const data = await response.json();
+                requestInFlight = false;
 
                 if (!response.ok) throw data;
                 finishAndRedirect(data.redirect, data.message);
             } catch (data) {
+                requestInFlight = false;
                 const message = data?.errors ? Object.values(data.errors).flat().join(' ') : (data?.message || 'Tenant deletion failed.');
                 fail(message);
             }
@@ -120,6 +125,7 @@
 
     if (resumeDeletion) {
         busy = true;
+        requestInFlight = false;
         window.ControlCenterOperation.begin(overlayId, {
             eyebrow: 'Permanent deletion',
             title: 'Deleting tenant',
