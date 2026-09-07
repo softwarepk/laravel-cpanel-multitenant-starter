@@ -33,12 +33,12 @@ class CentralTenantLifecycleController extends Controller
     {
         abort_unless($tenant->provisioning_status === 'active', 409);
 
-        $unresolvedDeletion = TenantDeletionRecord::query()
+        $latestDeletion = TenantDeletionRecord::query()
             ->where('tenant_id', (string) $tenant->getTenantKey())
-            ->whereIn('status', ['started', 'failed'])
-            ->exists();
+            ->latest('id')
+            ->first();
 
-        abort_if($unresolvedDeletion, 409, 'This tenant has an unresolved deletion attempt. Retry or resolve deletion cleanup before reactivating it.');
+        abort_if($latestDeletion instanceof TenantDeletionRecord && $latestDeletion->isUnresolved(), 409, 'This tenant has an unresolved deletion attempt. Retry or resolve deletion cleanup before reactivating it.');
 
         $tenant->update(['status' => 'active', 'suspended_at' => null]);
         $audit->log('tenant.activated', 'Tenant activated.', tenantId: (string) $tenant->getTenantKey(), request: $request);
@@ -54,20 +54,20 @@ class CentralTenantLifecycleController extends Controller
             ->first();
 
         if (! $history instanceof TenantDeletionRecord) {
-            return response()->json([
-                'tenant_id' => $tenantId,
-                'status' => 'starting',
-                'progress' => 5,
-                'message' => 'Preparing permanent deletion…',
-                'completed' => false,
-                'failed' => false,
-            ]);
+            return $this->deletionStartingResponse($tenantId);
         }
 
         $status = (string) $history->status;
         $results = (array) $history->cleanup_results;
         $completed = in_array($status, ['completed', 'completed_with_warnings'], true);
         $failed = $status === 'failed';
+
+        // A recreated tenant may have clean deletion history from an older
+        // generation. Do not mistake that old completed record for the
+        // deletion request that is only now being submitted.
+        if ($completed && Tenant::query()->whereKey($tenantId)->exists()) {
+            return $this->deletionStartingResponse($tenantId);
+        }
 
         if ($completed) {
             return response()->json([
@@ -127,13 +127,14 @@ class CentralTenantLifecycleController extends Controller
         abort_unless($tenant->status === 'suspended', 409, 'Suspend the tenant before permanently deleting it.');
         $tenantId = (string) $tenant->getTenantKey();
 
-        $activeDeletion = TenantDeletionRecord::query()
+        $latestDeletion = TenantDeletionRecord::query()
             ->where('tenant_id', $tenantId)
-            ->where('status', 'started')
             ->latest('id')
             ->first();
 
-        if ($activeDeletion instanceof TenantDeletionRecord && ! $this->deletionIsStale($activeDeletion)) {
+        if ($latestDeletion instanceof TenantDeletionRecord
+            && (string) $latestDeletion->status === 'started'
+            && ! $this->deletionIsStale($latestDeletion)) {
             $message = 'Permanent deletion is already in progress for this tenant.';
 
             return $request->expectsJson()
@@ -183,6 +184,18 @@ class CentralTenantLifecycleController extends Controller
         }
 
         return redirect()->route('central.tenants.index')->with('status', $message);
+    }
+
+    private function deletionStartingResponse(string $tenantId): JsonResponse
+    {
+        return response()->json([
+            'tenant_id' => $tenantId,
+            'status' => 'starting',
+            'progress' => 5,
+            'message' => 'Preparing permanent deletion…',
+            'completed' => false,
+            'failed' => false,
+        ]);
     }
 
     private function deletionIsStale(TenantDeletionRecord $history): bool
