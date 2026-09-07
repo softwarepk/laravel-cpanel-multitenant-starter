@@ -22,14 +22,18 @@ class WebInstaller
      */
     public function install(array $data, string $requestHost): array
     {
-        $wasPending = $this->state->isPending();
-        $this->state->begin();
-
         $cpanel = $this->cpanelClient($data);
 
         $this->verifyHostedDomain($cpanel, $requestHost, (string) $data['document_root']);
         $this->verifyPlatformDomain($cpanel, (string) $data['platform_domain']);
-        $this->verifyDatabaseHosts($cpanel, $data);
+        $this->verifyDatabaseConfigurationWithClient($cpanel, $data);
+
+        $this->state->begin([
+            'central_database' => (string) $data['central_db_name'],
+            'central_db_user' => (string) $data['central_db_user'],
+            'tenant_db_user' => (string) $data['tenant_db_user'],
+        ]);
+
         $this->ensureDatabaseUsers($cpanel, $data);
 
         // Existing cPanel users are never silently given a new password. Prove
@@ -57,7 +61,7 @@ class WebInstaller
             (string) $data['central_db_name'],
         );
 
-        if (! $wasPending && $this->databaseHasTables($centralPdo)) {
+        if (! $this->state->pendingDatabaseMatches((string) $data['central_db_name']) && $this->databaseHasTables($centralPdo)) {
             throw new RuntimeException('The selected central database is not empty. Use an empty database for a new installation.');
         }
 
@@ -129,6 +133,95 @@ class WebInstaller
         return ['database_host' => $cpanel->databaseHost()];
     }
 
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{database_host:string,checks:list<string>}
+     */
+    public function verifyDatabaseConfiguration(array $data): array
+    {
+        return $this->verifyDatabaseConfigurationWithClient($this->cpanelClient($data), $data);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{database_host:string,checks:list<string>}
+     */
+    private function verifyDatabaseConfigurationWithClient(InstallerCpanelClient $cpanel, array $data): array
+    {
+        $reportedHost = $this->verifyDatabaseHosts($cpanel, $data);
+        $centralDatabase = (string) $data['central_db_name'];
+        $centralUser = (string) $data['central_db_user'];
+        $tenantUser = (string) $data['tenant_db_user'];
+        $centralDatabaseExists = $cpanel->databaseExists($centralDatabase);
+        $centralUserExists = $cpanel->userExists($centralUser);
+        $tenantUserExists = $cpanel->userExists($tenantUser);
+        $checks = ["MySQL/MariaDB host [{$reportedHost}] is permitted."];
+
+        if ($centralUserExists) {
+            $this->verifyExistingUserCredentials(
+                (string) $data['db_host'],
+                (int) $data['db_port'],
+                $centralUser,
+                (string) $data['central_db_password'],
+            );
+            $checks[] = "Central database user [{$centralUser}] already exists and its password was verified.";
+        } else {
+            $checks[] = "Central database user [{$centralUser}] does not exist and will be created.";
+        }
+
+        if ($tenantUserExists) {
+            $this->verifyExistingUserCredentials(
+                (string) $data['tenant_db_host'],
+                (int) $data['tenant_db_port'],
+                $tenantUser,
+                (string) $data['tenant_db_password'],
+            );
+            $checks[] = "Tenant database user [{$tenantUser}] already exists and its password was verified.";
+        } else {
+            $checks[] = "Tenant database user [{$tenantUser}] does not exist and will be created.";
+        }
+
+        if (! $centralDatabaseExists) {
+            $checks[] = "Central database [{$centralDatabase}] does not exist and will be created.";
+
+            return [
+                'database_host' => $reportedHost,
+                'checks' => $checks,
+            ];
+        }
+
+        if (! $centralUserExists) {
+            throw new RuntimeException("Central database [{$centralDatabase}] already exists, but user [{$centralUser}] does not. For a safe first installation, choose a new empty database name or use an existing user that can inspect this database.");
+        }
+
+        try {
+            $centralPdo = $this->pdo(
+                (string) $data['db_host'],
+                (int) $data['db_port'],
+                $centralUser,
+                (string) $data['central_db_password'],
+                $centralDatabase,
+            );
+        } catch (RuntimeException $e) {
+            throw new RuntimeException("Central database [{$centralDatabase}] already exists, but it could not be safely inspected with user [{$centralUser}]. Grant that user access first or choose a new empty database name.", previous: $e);
+        }
+
+        if ($this->databaseHasTables($centralPdo)) {
+            if (! $this->state->pendingDatabaseMatches($centralDatabase)) {
+                throw new RuntimeException("Central database [{$centralDatabase}] already contains tables. Use an empty database for a new installation.");
+            }
+
+            $checks[] = "Central database [{$centralDatabase}] contains tables from this recorded interrupted installation and can be resumed.";
+        } else {
+            $checks[] = "Central database [{$centralDatabase}] already exists and is empty.";
+        }
+
+        return [
+            'database_host' => $reportedHost,
+            'checks' => $checks,
+        ];
+    }
+
     /** @param array<string, mixed> $data */
     private function cpanelClient(array $data): InstallerCpanelClient
     {
@@ -195,7 +288,7 @@ class WebInstaller
     }
 
     /** @param array<string, mixed> $data */
-    private function verifyDatabaseHosts(InstallerCpanelClient $cpanel, array $data): void
+    private function verifyDatabaseHosts(InstallerCpanelClient $cpanel, array $data): string
     {
         $reported = strtolower($cpanel->databaseHost());
         $safeLocalHosts = ['localhost', '127.0.0.1', '::1'];
@@ -205,6 +298,17 @@ class WebInstaller
             if (! in_array($submitted, $safeLocalHosts, true) && $submitted !== $reported) {
                 throw new RuntimeException("Database host [{$submitted}] is not localhost or the MySQL/MariaDB host reported by cPanel [{$reported}].");
             }
+        }
+
+        return $reported;
+    }
+
+    private function verifyExistingUserCredentials(string $host, int $port, string $user, string $password): void
+    {
+        try {
+            $this->pdo($host, $port, $user, $password);
+        } catch (RuntimeException $e) {
+            throw new RuntimeException("Database user [{$user}] already exists, but the supplied password does not authenticate at [{$host}:{$port}]. Enter that user's existing password or choose a new database username.", previous: $e);
         }
     }
 
