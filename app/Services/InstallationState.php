@@ -6,6 +6,8 @@ use RuntimeException;
 
 class InstallationState
 {
+    public function __construct(private readonly EnvironmentFile $environment) {}
+
     public function requiresInstallation(): bool
     {
         if ($this->isComplete() || $this->isLegacyConfigured()) {
@@ -58,9 +60,16 @@ class InstallationState
 
     private function isLegacyConfigured(): bool
     {
-        return $this->isProductionEnvironment()
-            && ! $this->isPending()
-            && trim((string) config('app.key')) !== '';
+        if (! $this->isProductionEnvironment() || $this->isPending()) {
+            return false;
+        }
+
+        $override = config('installer.legacy_configured');
+        if (is_bool($override)) {
+            return $override;
+        }
+
+        return $this->environment->hasConfiguredApplicationKey();
     }
 
     private function isProductionEnvironment(): bool
