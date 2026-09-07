@@ -82,6 +82,7 @@
 
     const poll = async () => {
         if (!busy || !tenantId) return;
+        let currentStage = null;
 
         try {
             const response = await fetch(`{{ url('/central/tenants/provisioning') }}/${encodeURIComponent(tenantId)}`, {
@@ -89,16 +90,17 @@
                 cache: 'no-store',
             });
             const data = await response.json();
+            currentStage = data.provisioning_status || null;
             showStage(data);
             redirectUrl = data.redirect || redirectUrl;
 
-            if (data.provisioning_status === 'active' && redirectUrl) return finishAndRedirect(redirectUrl);
-            if (data.provisioning_status === 'https_pending' && storeFinished) await checkHttps();
+            if (currentStage === 'active' && redirectUrl) return finishAndRedirect(redirectUrl);
+            if (currentStage === 'https_pending' && storeFinished) await checkHttps();
         } catch (_) {
             // A transient polling failure must not interrupt the provisioning request.
         }
 
-        schedulePoll(data?.provisioning_status === 'https_pending' ? 2500 : 1200);
+        schedulePoll(currentStage === 'https_pending' ? 2500 : 1200);
     };
 
     form.addEventListener('submit', async (event) => {
