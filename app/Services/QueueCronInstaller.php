@@ -132,7 +132,7 @@ class QueueCronInstaller
     }
 
     /**
-     * @param array{automatic:bool,php_binary:string|null,flock_binary:string|null,schedule:string,marker:string,command:string|null,worker_command:string|null,reason:string|null} $plan
+     * @param  array{automatic:bool,php_binary:string|null,flock_binary:string|null,schedule:string,marker:string,command:string|null,worker_command:string|null,reason:string|null}  $plan
      * @return array{configured:bool,status:string,schedule:string,command:string|null,message:string}
      */
     private function manualResult(array $plan, string $message): array
