@@ -47,8 +47,8 @@ class InstallationState
             'completed_at' => now()->toIso8601String(),
         ], $metadata), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
-        if ($payload === false || file_put_contents($this->completeFile(), $payload.PHP_EOL, LOCK_EX) === false) {
-            throw new RuntimeException('Unable to create the installation completion marker.');
+        if ($payload !== false) {
+            @file_put_contents($this->completeFile(), $payload.PHP_EOL, LOCK_EX);
         }
 
         if (is_file($this->pendingFile())) {
