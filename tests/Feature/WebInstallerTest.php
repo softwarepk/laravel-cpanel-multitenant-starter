@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 
 beforeEach(function (): void {
     $directory = storage_path('framework/testing/web-installer');
@@ -33,7 +34,7 @@ it('redirects an uninstalled production deployment to the web installer', functi
     $response->assertRedirect('/install');
 });
 
-it('serves the installer without the normal web session middleware', function (): void {
+it('serves the installer as a guided wizard without normal web session middleware', function (): void {
     $response = $this
         ->withHeader('Host', 'central.test')
         ->withServerVariables(['HTTPS' => 'on', 'DOCUMENT_ROOT' => public_path()])
@@ -42,8 +43,78 @@ it('serves the installer without the normal web session middleware', function ()
     $response
         ->assertOk()
         ->assertSee('First-run deployment')
+        ->assertSee('Step 1 of 6')
+        ->assertSee('Test cPanel connection')
+        ->assertSee('Verify database configuration')
+        ->assertSee('Review setup')
         ->assertSee(public_path())
         ->assertSee('Install &amp; configure', false);
+});
+
+it('preflights cPanel ownership before the database step', function (): void {
+    Http::fakeSequence()
+        ->push(['result' => ['status' => 1, 'data' => ['domain' => 'central.test', 'documentroot' => public_path()]]])
+        ->push(['result' => ['status' => 1, 'data' => ['domain' => 'central.test', 'documentroot' => public_path()]]])
+        ->push(['result' => ['status' => 1, 'data' => ['mysql_host' => 'localhost']]]);
+
+    $response = $this
+        ->withHeader('Accept', 'application/json')
+        ->withServerVariables(['HTTPS' => 'on', 'DOCUMENT_ROOT' => public_path()])
+        ->post('https://central.test/install/cpanel-check', [
+            'central_domain' => 'central.test',
+            'platform_domain' => 'central.test',
+            'document_root' => public_path(),
+            'cpanel_host' => '1.1.1.1',
+            'cpanel_port' => 2083,
+            'cpanel_user' => 'tester',
+            'cpanel_token' => str_repeat('a', 32),
+        ]);
+
+    $response
+        ->assertOk()
+        ->assertJson([
+            'ok' => true,
+            'database_host' => 'localhost',
+        ]);
+});
+
+it('preflights new database resources without creating them', function (): void {
+    Http::fakeSequence()
+        ->push(['result' => ['status' => 1, 'data' => ['mysql_host' => 'localhost']]])
+        ->push(['result' => ['status' => 1, 'data' => []]])
+        ->push(['result' => ['status' => 1, 'data' => []]])
+        ->push(['result' => ['status' => 1, 'data' => []]]);
+
+    $response = $this
+        ->withHeader('Accept', 'application/json')
+        ->post('https://central.test/install/database-check', [
+            'cpanel_host' => '1.1.1.1',
+            'cpanel_port' => 2083,
+            'cpanel_user' => 'tester',
+            'cpanel_token' => str_repeat('a', 32),
+            'db_host' => 'localhost',
+            'db_port' => 3306,
+            'central_db_name' => 'tester_central',
+            'central_db_user' => 'tester_ctl',
+            'central_db_password' => str_repeat('b', 16),
+            'tenant_db_host' => 'localhost',
+            'tenant_db_port' => 3306,
+            'tenant_db_user' => 'tester_app',
+            'tenant_db_password' => str_repeat('c', 16),
+            'tenant_db_prefix' => 'tester_t_',
+        ]);
+
+    $response
+        ->assertOk()
+        ->assertJson([
+            'ok' => true,
+            'database_host' => 'localhost',
+        ])
+        ->assertJsonFragment(['Central database [tester_central] does not exist and will be created.'])
+        ->assertJsonFragment(['Central database user [tester_ctl] does not exist and will be created.'])
+        ->assertJsonFragment(['Tenant database user [tester_app] does not exist and will be created.']);
+
+    Http::assertSentCount(4);
 });
 
 it('treats an existing production app key as an already configured legacy deployment', function (): void {
