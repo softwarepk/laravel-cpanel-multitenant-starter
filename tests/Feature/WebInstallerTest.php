@@ -45,6 +45,7 @@ it('serves the installer as a guided wizard without normal web session middlewar
         ->assertSee('First-run deployment')
         ->assertSee('Step 1 of 7')
         ->assertSee('Test cPanel connection')
+        ->assertSee('Verify database configuration')
         ->assertSee('Background processing')
         ->assertSee('Review setup')
         ->assertSee(public_path())
@@ -76,6 +77,45 @@ it('preflights cPanel ownership before the database step', function (): void {
             'ok' => true,
             'database_host' => 'localhost',
         ]);
+});
+
+it('preflights new database resources without changing them', function (): void {
+    Http::fakeSequence()
+        ->push(['result' => ['status' => 1, 'data' => ['mysql_host' => 'localhost']]])
+        ->push(['result' => ['status' => 1, 'data' => []]])
+        ->push(['result' => ['status' => 1, 'data' => []]])
+        ->push(['result' => ['status' => 1, 'data' => []]]);
+
+    $response = $this
+        ->withHeader('Accept', 'application/json')
+        ->post('https://central.test/install/database-check', [
+            'cpanel_host' => '1.1.1.1',
+            'cpanel_port' => 2083,
+            'cpanel_user' => 'tester',
+            'cpanel_token' => str_repeat('a', 32),
+            'db_host' => 'localhost',
+            'db_port' => 3306,
+            'central_db_name' => 'tester_central',
+            'central_db_user' => 'tester_ctl',
+            'central_db_password' => str_repeat('b', 16),
+            'tenant_db_host' => 'localhost',
+            'tenant_db_port' => 3306,
+            'tenant_db_user' => 'tester_app',
+            'tenant_db_password' => str_repeat('c', 16),
+            'tenant_db_prefix' => 'tester_t_',
+        ]);
+
+    $response
+        ->assertOk()
+        ->assertJson([
+            'ok' => true,
+            'database_host' => 'localhost',
+        ])
+        ->assertJsonFragment(['Central database [tester_central] does not exist and will be created.'])
+        ->assertJsonFragment(['Central database user [tester_ctl] does not exist and will be created.'])
+        ->assertJsonFragment(['Tenant database user [tester_app] does not exist and will be created.']);
+
+    Http::assertSentCount(4);
 });
 
 it('treats an existing production app key as an already configured legacy deployment', function (): void {
