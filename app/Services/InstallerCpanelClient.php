@@ -51,8 +51,10 @@ class InstallerCpanelClient
             throw new RuntimeException('cPanel UAPI returned an invalid response.');
         }
 
-        $result = $decoded['result'] ?? null;
-        if (! is_array($result)) {
+        $wrapped = $decoded['result'] ?? null;
+        $result = is_array($wrapped) ? $wrapped : $decoded;
+
+        if (! array_key_exists('status', $result)) {
             throw new RuntimeException('cPanel UAPI returned an invalid result.');
         }
 
