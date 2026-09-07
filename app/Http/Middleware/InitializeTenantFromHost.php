@@ -19,6 +19,8 @@ class InitializeTenantFromHost
         $installerPath = $request->is('install') || $request->is('install/*');
 
         if ($this->installation->requiresInstallation()) {
+            $this->ensureTemporaryEncryptionKey();
+
             if ($request->is('up')) {
                 return $next($request);
             }
@@ -31,11 +33,7 @@ class InitializeTenantFromHost
         }
 
         if ($installerPath) {
-            if (in_array($host, $centralDomains, true)) {
-                return redirect('/central/login');
-            }
-
-            abort(404);
+            return redirect('/central/login');
         }
 
         if (in_array($host, $centralDomains, true)) {
@@ -62,6 +60,15 @@ class InitializeTenantFromHost
         } finally {
             tenancy()->end();
         }
+    }
+
+    private function ensureTemporaryEncryptionKey(): void
+    {
+        if (trim((string) config('app.key')) !== '') {
+            return;
+        }
+
+        config(['app.key' => 'base64:'.base64_encode(random_bytes(32))]);
     }
 
     private function shouldRedirectToHttps(Request $request): bool
