@@ -17,7 +17,7 @@ Not every item needs to be enabled for every project. The goal is to make produc
 
 ## 2. Password policy
 
-The starter intentionally defaults to a simple password policy: a minimum of eight characters. This keeps local setup and early application development straightforward.
+The starter intentionally defaults to a simple password policy: a minimum of eight characters.
 
 Before production, review **Control Center → Settings → Password policy**. The policy can require:
 
@@ -48,7 +48,7 @@ Enabling compromised-password checking requires outbound access to Laravel's ext
 
 Tenant database names are generated deterministically with a short hash so distinct valid tenant IDs cannot collapse onto the same database name. Once a tenant has been assigned a database name, retries continue using that persisted identity even if naming configuration changes later.
 
-Deleted tenant IDs/database names remain reserved in central deletion history. Do not plan to recycle tenant identifiers; use a new tenant ID for a new organization.
+Tenant/database identity reuse is allowed only after the latest matching deletion record completed cleanly with no failed cleanup results. Started, failed, warning-bearing, or otherwise incomplete deletion history must continue to reserve that identity.
 
 ## 5. Real cPanel staging validation
 
@@ -64,28 +64,38 @@ Before provisioning production tenants, validate the exact hosting account end t
 8. AutoSSL/trusted HTTPS becomes available on the platform hostname.
 9. Custom-domain creation, verification, primary-domain switching, and removal work on the actual host.
 10. Suspension/reactivation works.
-11. Permanent deletion records what was removed and what still needs manual cleanup.
+11. A suspended tenant cannot be reactivated by directly invoking the HTTPS-check endpoint.
+12. Domain/configuration mutations are blocked while deletion is running or cleanup is unresolved.
+13. Permanent deletion records what was removed and what still needs manual cleanup.
+14. Navigating away during create/delete does not stop the queued operation.
+15. A stale/retired lifecycle job does not continue into later stages after a newer retry takes ownership.
 
 The Control Center's provisioning-readiness check verifies configuration presence. It is not a substitute for the real staging exercise above.
 
-## 6. Provisioning execution time
+## 6. Queue execution and tenant operation timing
 
-The starter keeps tenant provisioning synchronous to remain simple and usable on ordinary cPanel hosting.
+Tenant creation and permanent deletion are built-in background operations. A production queue worker is therefore required before those Control Center actions are used.
 
-If a derived application regularly exceeds web/PHP request limits while provisioning tenants, move the `ProvisionTenant` action behind the existing central queue. The current provisioning states are deliberately compatible with that future change; asynchronous provisioning is not required by the starter itself.
+The starter's tenant-operation jobs have a 600-second timeout. The database queue `retry_after` default is 900 seconds and must remain comfortably above the job timeout so a second worker cannot reserve the same job prematurely.
+
+Stale-operation recovery deliberately waits longer again (20 minutes in the built-in controllers). Do not shorten that window to the job timeout itself without redesigning the stale-generation safeguards.
+
+Provisioning jobs carry a generation/operation ID. Running provisioning revalidates that ID between major stages. Deletion jobs use a durable deletion record and revalidate that the record is still active before entering later destructive stages.
 
 ## 7. Queue workers
 
 The database queue is central and tenant-aware jobs retain the originating tenant ID. Database jobs are configured to dispatch after surrounding transactions commit.
 
-If the application uses asynchronous jobs:
+Use either:
 
-- configure a persistent worker where the host supports it; or
-- use a cron-driven `php artisan queue:work --stop-when-empty --tries=3` strategy;
-- restart workers after deployments;
-- review failed jobs operationally.
+- a persistent supervised worker where the host supports it; or
+- a cron-driven worker such as `php artisan queue:work --queue=default --stop-when-empty --tries=1 --timeout=600`.
 
-Applications that do not need asynchronous work may deliberately use the `sync` queue.
+When cron is used, prefer `flock` or another mutual-exclusion mechanism to avoid overlapping workers.
+
+Restart long-running workers after deployments and review failed jobs operationally.
+
+Do not switch production to `QUEUE_CONNECTION=sync` unless you deliberately redesign the built-in queued tenant lifecycle as well.
 
 ## 8. Sessions, cookies, proxies, and HTTPS
 
@@ -102,6 +112,8 @@ Avoid broadly sharing the tenant session cookie across `*.TENANT_PLATFORM_DOMAIN
 
 If TLS terminates at Cloudflare, a load balancer, or another reverse proxy, configure Laravel's trusted-proxy handling correctly before relying on `isSecure()`, secure cookies, redirects, or generated HTTPS URLs.
 
+HTTPS verification must not be treated as a generic lifecycle activation route. A suspended or deleting tenant must remain unavailable even when its certificate is valid.
+
 ## 9. Tenant files
 
 The starter switches both `local` and `public` storage roots with tenant context. Application code should use Laravel `Storage` APIs rather than manually building tenant paths.
@@ -117,7 +129,9 @@ A database-per-tenant boundary does not protect a file that an application delib
 
 ## 10. Custom domains
 
-Custom domains created from the Control Center are managed by the platform. The Control Center can remove a non-primary custom domain and will first verify that the cPanel domain still points at the application's configured document root.
+Custom domains are managed by central administrators through the Control Center. The Control Center can remove a non-primary custom domain and will first verify that the cPanel domain still points at the application's configured document root.
+
+All domain mutations must remain guarded server-side by tenant lifecycle state. Do not rely on Blade/UI visibility alone to prevent domain changes during provisioning, failed cleanup, or deletion.
 
 If a future application supports externally managed/manual domain records, distinguish those from platform-managed domains before automatically deleting infrastructure.
 
@@ -125,9 +139,9 @@ cPanel currently requires deprecated API 2 functions for some addon-domain opera
 
 ## 11. Tenant deletion and retention
 
-Permanent deletion requires a suspended tenant, exact tenant-ID confirmation, and the current central administrator password.
+Permanent deletion of an operational tenant requires suspension first, exact tenant-ID confirmation, and the current central administrator password. A tenant whose provisioning failed may be cleaned up directly because it may have partial infrastructure that should not remain stranded.
 
-Deletion is intentionally best-effort across external infrastructure. The application attempts to remove:
+Deletion is queued. Before dispatch, the application creates a durable deletion record containing the tenant/database/domain snapshot. The job attempts to remove:
 
 - the platform hostname;
 - managed custom domains;
@@ -135,9 +149,11 @@ Deletion is intentionally best-effort across external infrastructure. The applic
 - the tenant database;
 - the central tenant record.
 
-A failure in cPanel/filesystem/database cleanup does not automatically block removal of the central tenant record. A durable deletion record is retained under **Central Activity**, including the tenant/database/domain snapshot and the result/error for each cleanup step.
+Progress is stored after each external stage. The running job revalidates that its deletion record is still active before entering subsequent destructive stages. Stale recovery must retire the previous record before a new deletion attempt is created.
 
-Deleted tenant and database identities remain reserved. This is intentional: if an external cleanup step left residual database or storage resources, automatically reusing the same deterministic identity could expose old tenant data to a later tenant.
+A failure in cPanel/filesystem/database cleanup does not automatically block removal of the central tenant record. A durable deletion record is retained under **Central Activity**, including the original tenant/database/domain snapshot and the result/error for each cleanup step.
+
+A tenant ID/database identity may be reused only after a clean completed deletion. If cleanup was unresolved, failed, or completed with warnings, choose another identity or resolve the infrastructure cleanup first.
 
 Before production, define the application's own backup, legal-hold, and data-retention policy. Take a final backup before deletion when required.
 
@@ -176,7 +192,7 @@ npm audit
 
 Review audit findings rather than blindly applying major-version upgrades.
 
-GitHub Actions in this starter are manual by default. Projects may enable PR/push triggers when CI capacity and repository rules permit.
+GitHub Actions capacity may be unavailable. Do not treat missing remote checks as evidence of success; local quality-gate output is authoritative for this starter when Actions cannot run.
 
 ## 15. Higher-assurance deployments
 
