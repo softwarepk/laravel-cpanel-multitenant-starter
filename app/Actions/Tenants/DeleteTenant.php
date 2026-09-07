@@ -25,8 +25,8 @@ class DeleteTenant
 
     public function begin(Tenant $tenant, ?CentralAdmin $admin = null): TenantDeletionRecord
     {
-        if ($tenant->status !== 'suspended') {
-            throw new RuntimeException('A tenant must be suspended before it can be permanently deleted.');
+        if (! in_array($tenant->status, ['suspended', 'failed'], true)) {
+            throw new RuntimeException('A tenant must be suspended or have failed provisioning before it can be permanently deleted.');
         }
 
         $tenantId = (string) $tenant->getTenantKey();
@@ -57,8 +57,8 @@ class DeleteTenant
 
     public function handle(Tenant $tenant, ?CentralAdmin $admin = null, ?TenantDeletionRecord $history = null): TenantDeletionRecord
     {
-        if (! in_array($tenant->status, ['suspended', 'deleting'], true)) {
-            throw new RuntimeException('A tenant must be suspended before it can be permanently deleted.');
+        if (! in_array($tenant->status, ['suspended', 'failed', 'deleting'], true)) {
+            throw new RuntimeException('A tenant must be suspended, have failed provisioning, or already be deleting before it can be permanently deleted.');
         }
 
         $tenantId = (string) $tenant->getTenantKey();
@@ -74,7 +74,6 @@ class DeleteTenant
 
         $database = (string) ($history->database_name ?? '');
         $platform = $history->platform_domain;
-        /** @var list<string> $custom */
         $custom = $history->custom_domains ?? [];
         $storagePath = $this->tenantStoragePath($tenantId);
         /** @var array<string, array{status:string,target:string|null,error?:string}> $results */
