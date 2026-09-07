@@ -27,7 +27,7 @@ class QueueCronInstaller
         $flockBinary = $this->detectFlockBinary();
         $marker = $this->marker();
         $workerCommand = $phpBinary !== null ? $this->workerCommand($phpBinary) : null;
-        $command = $phpBinary !== null && $flockBinary !== null
+        $command = $workerCommand !== null && $flockBinary !== null
             ? $this->lockedCommand($flockBinary, $workerCommand, $marker)
             : null;
 
