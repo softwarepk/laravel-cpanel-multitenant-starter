@@ -55,9 +55,9 @@
         button.secondary, .button.secondary { color: #344054; background: #fff; border: 1px solid #cfd6df; }
         button.secondary:hover, .button.secondary:hover { background: #f7f8fa; }
         button:disabled { opacity: .45; cursor: not-allowed; }
-        .connection-status { margin-top: 12px; min-height: 20px; font-size: 13px; color: #667085; }
-        .connection-status.good { color: #17633f; }
-        .connection-status.fail { color: #b42318; }
+        .connection-status { margin-top: 12px; min-height: 20px; font-size: 13px; color: #667085; line-height: 1.55; white-space: pre-line; }
+        .connection-status.good { color: #17633f; background: #edf9f2; border: 1px solid #bfe3cd; border-radius: 10px; padding: 13px 15px; }
+        .connection-status.fail { color: #8c1d14; background: #fff1f0; border: 1px solid #ffc9c3; border-radius: 10px; padding: 13px 15px; }
         .summary { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 0; border: 1px solid #e1e6ed; border-radius: 10px; overflow: hidden; }
         .summary dt, .summary dd { margin: 0; padding: 11px 13px; border-bottom: 1px solid #edf0f4; }
         .summary dt { background: #f8f9fb; font-size: 12px; color: #667085; font-weight: 750; }
@@ -161,7 +161,8 @@
                         <div><label for="tenant_db_prefix">Tenant database prefix</label><input id="tenant_db_prefix" name="tenant_db_prefix" type="text" value="{{ $values['tenant_db_prefix'] ?? '' }}" required>@foreach($errors['tenant_db_prefix'] ?? [] as $error)<div class="error">{{ $error }}</div>@endforeach</div>
                         <div class="full"><label for="tenant_db_password">Tenant application DB user password</label><input id="tenant_db_password" name="tenant_db_password" type="password" value="" autocomplete="new-password" required>@foreach($errors['tenant_db_password'] ?? [] as $error)<div class="error">{{ $error }}</div>@endforeach</div>
                     </div>
-                    <div class="actions"><button type="button" class="secondary" data-back>Back</button><div class="actions-right"><button type="button" data-next>Continue</button></div></div>
+                    <div style="margin-top:18px"><button type="button" class="secondary" id="test-database">Verify database configuration</button><div id="database-test-status" class="connection-status">Database configuration has not been verified in this browser session.</div></div>
+                    <div class="actions"><button type="button" class="secondary" data-back>Back</button><div class="actions-right"><button type="button" data-next id="database-continue" disabled>Continue</button></div></div>
                 </section>
 
                 <section class="card" data-step-panel="5">
@@ -239,6 +240,7 @@
     const maxStep = panels.length;
     let currentStep = Math.min(maxStep, Math.max(1, Number(@json($initialStep)) || 1));
     let cpanelVerified = false;
+    let databaseVerified = false;
 
     const field = (name) => form.elements.namedItem(name);
     const value = (name) => {
@@ -295,6 +297,7 @@
             const panel = button.closest('[data-step-panel]');
             if (!panel || !validatePanel(panel)) return;
             if (Number(panel.dataset.stepPanel) === 3 && !cpanelVerified) return;
+            if (Number(panel.dataset.stepPanel) === 4 && !databaseVerified) return;
             showStep(currentStep + 1);
         });
     });
@@ -303,7 +306,20 @@
     const cpanelContinue = document.getElementById('cpanel-continue');
     const cpanelTest = document.getElementById('test-cpanel');
     const cpanelStatus = document.getElementById('cpanel-test-status');
+    const databaseContinue = document.getElementById('database-continue');
+    const databaseTest = document.getElementById('test-database');
+    const databaseStatus = document.getElementById('database-test-status');
     const cpanelFields = ['central_domain', 'platform_domain', 'document_root', 'cpanel_host', 'cpanel_port', 'cpanel_user', 'cpanel_token'];
+    const databaseFields = ['cpanel_host', 'cpanel_port', 'cpanel_user', 'cpanel_token', 'db_host', 'db_port', 'central_db_name', 'central_db_user', 'central_db_password', 'tenant_db_host', 'tenant_db_port', 'tenant_db_user', 'tenant_db_password', 'tenant_db_prefix'];
+
+    const resetDatabaseVerification = () => {
+        databaseVerified = false;
+        if (databaseContinue) databaseContinue.disabled = true;
+        if (databaseStatus) {
+            databaseStatus.className = 'connection-status';
+            databaseStatus.textContent = 'Database configuration changed; verify it again before continuing.';
+        }
+    };
 
     const resetCpanelVerification = () => {
         cpanelVerified = false;
@@ -312,8 +328,10 @@
             cpanelStatus.className = 'connection-status';
             cpanelStatus.textContent = 'Connection changed; test cPanel again before continuing.';
         }
+        resetDatabaseVerification();
     };
     cpanelFields.forEach((name) => field(name)?.addEventListener('input', resetCpanelVerification));
+    databaseFields.filter((name) => !cpanelFields.includes(name)).forEach((name) => field(name)?.addEventListener('input', resetDatabaseVerification));
 
     cpanelTest?.addEventListener('click', async () => {
         const panel = document.querySelector('[data-step-panel="3"]');
@@ -336,7 +354,7 @@
             if (cpanelContinue) cpanelContinue.disabled = false;
             if (cpanelStatus) {
                 cpanelStatus.className = 'connection-status good';
-                cpanelStatus.textContent = `${data.message} MySQL/MariaDB host reported by cPanel: ${data.database_host}.`;
+                cpanelStatus.textContent = `✓ ${data.message}\nMySQL/MariaDB host reported by cPanel: ${data.database_host}.`;
             }
         } catch (data) {
             cpanelVerified = false;
@@ -348,6 +366,43 @@
             }
         } finally {
             cpanelTest.disabled = false;
+        }
+    });
+
+    databaseTest?.addEventListener('click', async () => {
+        const panel = document.querySelector('[data-step-panel="4"]');
+        if (!panel || !validatePanel(panel)) return;
+        databaseTest.disabled = true;
+        if (databaseStatus) {
+            databaseStatus.className = 'connection-status';
+            databaseStatus.textContent = 'Checking database host, names, existing users and credentials…';
+        }
+
+        try {
+            const response = await fetch('/install/database-check', {
+                method: 'POST',
+                body: new FormData(form),
+                headers: {Accept: 'application/json'},
+            });
+            const data = await response.json();
+            if (!response.ok) throw data;
+            databaseVerified = true;
+            if (databaseContinue) databaseContinue.disabled = false;
+            if (databaseStatus) {
+                const checks = Array.isArray(data.checks) ? data.checks.map((check) => `✓ ${check}`).join('\n') : '';
+                databaseStatus.className = 'connection-status good';
+                databaseStatus.textContent = `✓ ${data.message}${checks ? `\n${checks}` : ''}`;
+            }
+        } catch (data) {
+            databaseVerified = false;
+            if (databaseContinue) databaseContinue.disabled = true;
+            const details = data?.errors ? Object.values(data.errors).flat().join(' ') : (data?.message || 'The database configuration could not be verified.');
+            if (databaseStatus) {
+                databaseStatus.className = 'connection-status fail';
+                databaseStatus.textContent = details;
+            }
+        } finally {
+            databaseTest.disabled = false;
         }
     });
 
