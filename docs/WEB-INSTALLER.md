@@ -31,7 +31,23 @@ Configure the cPanel domain document root as:
 
 Then browse to the application over HTTPS. A fresh production clone redirects to `/install`.
 
-## What the first page discovers
+## Guided setup flow
+
+The installer presents one concern at a time rather than one large configuration form:
+
+1. **Environment** — PHP/extensions, writability, document root and HTTPS checks.
+2. **Application** — application URL, Control Center hostname, tenant platform root and DNS/document-root settings.
+3. **cPanel** — API host/user/token plus an explicit live connection test.
+4. **Databases** — central and tenant database hosts, users, passwords and naming.
+5. **Queue worker** — detected PHP CLI/flock paths and the proposed background-worker strategy.
+6. **Administrator** — first Control Center administrator and initial tenant-user registration options.
+7. **Review** — a non-secret summary and explicit final confirmation before installation starts.
+
+With JavaScript enabled, Back/Continue navigation progressively reveals these sections and validates the current section before moving forward. The cPanel step requires a successful live preflight after the relevant connection fields are entered. The final installation is still one server-side submission so secrets do not need to be persisted in a browser/server wizard session before an application key or normal Laravel session exists.
+
+The HTML remains usable without the wizard JavaScript: all sections are present in the document and the final server-side validation remains authoritative.
+
+## Discovery and preflight
 
 The installer pre-fills editable values where the running application can make a reasonable inference, including:
 
@@ -47,7 +63,11 @@ The installer pre-fills editable values where the running application can make a
 - whether the web server document root already points at Laravel `public`;
 - whether the current request is trusted HTTPS.
 
-All discovered configuration fields remain editable. Existing non-secret `.env` values may be used as defaults when resuming an incomplete installation. Secrets are never redisplayed.
+The queue step also attempts to discover a PHP CLI binary matching the running PHP major/minor version and the Linux `flock` utility. Optional deployment-specific overrides are available through `INSTALLER_QUEUE_PHP_BINARY` and `INSTALLER_QUEUE_FLOCK_BINARY` if automatic discovery is not correct.
+
+The cPanel **Test connection** action is read-only. It proves that the submitted token can reach cPanel, that the account manages the hostname currently serving the installer, that the document root matches this Laravel `public` directory, that the tenant platform root belongs to the account, and that cPanel can report the account's MySQL/MariaDB host. The final installation repeats the authoritative checks before changing resources.
+
+Existing non-secret `.env` values may be used as defaults when resuming an incomplete installation. Secrets are never redisplayed.
 
 ## Operator-supplied values
 
@@ -81,14 +101,39 @@ The installer compensates with a narrow one-time trust model:
 
 Because the installer has no cookie/session authentication state, conventional CSRF does not provide useful protection here. Successful installation requires possession of valid cPanel API credentials for the account that actually serves the application hostname.
 
+## Queue worker setup
+
+Tenant creation and permanent deletion are background operations, so a production installation requires a queue worker.
+
+For ordinary shared cPanel hosting, the installer prefers a once-per-minute cron entry that starts a short-lived database worker and exits when the queue is empty. When PHP CLI and `flock` are detected, the generated command follows this pattern:
+
+```bash
+/path/to/flock -n /path/to/storage/framework/queue-worker.lock /path/to/php /path/to/artisan queue:work database --queue=default --stop-when-empty --tries=1 --timeout=600
+```
+
+The application sets the database queue `retry_after` to 900 seconds, which remains longer than the 600-second tenant-operation worker timeout.
+
+The installer manages this cron idempotently:
+
+1. lists the account's cron entries;
+2. recognizes only the marker for this exact deployment path;
+3. reuses an exact existing worker entry;
+4. refuses to silently replace a conflicting managed entry;
+5. adds a missing once-per-minute entry;
+6. lists cron again and verifies that the new entry exists.
+
+cPanel currently exposes Cron `listcron`/`add_line` only through deprecated cPanel API 2; no UAPI equivalent exists. API 2 use is therefore isolated to this installer operation. If the host disables API 2/Cron access, or if PHP CLI/flock cannot be detected safely, the application installation can still complete but the success screen clearly marks **Queue worker requires one manual action** and shows the applicable worker command when one can be generated. Do not create/delete tenants until that worker action is resolved.
+
+A VPS or managed deployment may instead use Supervisor/systemd or another persistent process manager. In that case the generated cPanel cron is not required.
+
 ## Installation transaction boundary
 
 cPanel, MySQL and the filesystem do not form one transaction. The installer is therefore resumable rather than pretending all external work can roll back atomically.
 
-On submission it:
+On final submission it:
 
 1. creates an installation-pending marker;
-2. validates cPanel ownership/domain/document-root/database-host information;
+2. validates cPanel ownership/domain/document-root/database-host information again;
 3. creates or verifies the central and tenant DB users;
 4. verifies the submitted database passwords by connecting to MySQL/MariaDB;
 5. creates or verifies the central database and grants the central user access;
@@ -98,14 +143,19 @@ On submission it:
 9. configures the current request with the new central connection;
 10. runs central migrations;
 11. creates or updates the submitted first Control Center administrator;
-12. clears stale Laravel optimization/cache artifacts;
-13. writes an installation-complete marker and removes the pending state;
-14. records `INSTALLATION_COMPLETE=true` in `.env`.
+12. creates/verifies the cPanel queue-worker cron where automatic setup is available;
+13. clears stale Laravel optimization/cache artifacts;
+14. writes an installation-complete marker and removes the pending state;
+15. records `INSTALLATION_COMPLETE=true` in `.env`.
 
-If an external step fails before completion, the pending marker remains. Returning to `/install` resumes the workflow and reuses resources that were already created where safe.
+If an external step fails before completion, the pending marker remains. Returning to `/install` resumes the workflow and reuses resources that were already created where safe. Secrets must be re-entered because the installer deliberately does not persist them in intermediate wizard state.
+
+Queue cron inability is treated differently from a database/domain/bootstrap failure: the application may finish installing, but the success screen prominently reports the required manual worker action.
 
 ## After installation
 
 The installer locks itself. Requests to `/install` on the central domain redirect to `/central/login`; tenant hosts do not expose it.
 
-The next staging step is to sign in to the Control Center and provision at least two disposable tenants. Validate real cPanel subdomain creation, tenant database creation/privileges, tenant migrations, initial administrators, HTTPS activation, session/cache/storage/database isolation, custom-domain lifecycle, suspension/reactivation and permanent deletion history before treating the hosting environment as production-ready.
+If the completion screen reports that the queue worker was configured, proceed to the Control Center. If it reports a manual worker action, complete that action first.
+
+Then sign in and provision at least two disposable tenants. Validate real cPanel subdomain creation, tenant database creation/privileges, queued tenant migrations/initial administrators, HTTPS activation, session/cache/storage/database isolation, custom-domain lifecycle, suspension/reactivation and permanent deletion history before treating the hosting environment as production-ready.
