@@ -7,6 +7,7 @@ use App\Http\Controllers\CentralSettingsController;
 use App\Http\Controllers\CentralTenantController;
 use App\Http\Controllers\CentralTenantLifecycleController;
 use App\Http\Controllers\CentralTenantPagesController;
+use App\Services\InstallationState;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -43,7 +44,13 @@ Route::prefix('central')
         });
     });
 
-Route::get('/', fn (): RedirectResponse => redirect()->route(Auth::check() ? 'dashboard' : 'login'))->name('home');
+Route::get('/', function (InstallationState $installation): RedirectResponse {
+    if ($installation->requiresInstallation()) {
+        return new RedirectResponse('/install');
+    }
+
+    return redirect()->route(Auth::check() ? 'dashboard' : 'login');
+})->name('home');
 
 $applicationMiddleware = ['auth'];
 if (config('fortify.features') && in_array(Features::emailVerification(), config('fortify.features', []), true)) {
