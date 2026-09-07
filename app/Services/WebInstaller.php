@@ -30,7 +30,24 @@ class WebInstaller
 
         $this->verifyHostedDomain($cpanel, $requestHost, (string) $data['document_root']);
         $this->verifyPlatformDomain($cpanel, (string) $data['platform_domain']);
-        $this->provisionDatabaseResources($cpanel, $data);
+        $this->ensureDatabaseUsers($cpanel, $data);
+
+        // Existing cPanel users are never silently given a new password. Prove
+        // the submitted credentials work before assigning any new privileges.
+        $this->pdo(
+            (string) $data['db_host'],
+            (int) $data['db_port'],
+            (string) $data['central_db_user'],
+            (string) $data['central_db_password'],
+        );
+        $this->pdo(
+            (string) $data['tenant_db_host'],
+            (int) $data['tenant_db_port'],
+            (string) $data['tenant_db_user'],
+            (string) $data['tenant_db_password'],
+        );
+
+        $this->ensureCentralDatabase($cpanel, $data);
 
         $centralPdo = $this->pdo(
             (string) $data['db_host'],
@@ -43,13 +60,6 @@ class WebInstaller
         if (! $wasPending && $this->databaseHasTables($centralPdo)) {
             throw new RuntimeException('The selected central database is not empty. Use an empty database for a new installation.');
         }
-
-        $this->pdo(
-            (string) $data['tenant_db_host'],
-            (int) $data['tenant_db_port'],
-            (string) $data['tenant_db_user'],
-            (string) $data['tenant_db_password'],
-        );
 
         $applicationKey = trim((string) config('app.key'));
         if ($applicationKey === '') {
@@ -93,20 +103,27 @@ class WebInstaller
     }
 
     /** @param array<string, mixed> $data */
-    private function provisionDatabaseResources(InstallerCpanelClient $cpanel, array $data): void
+    private function ensureDatabaseUsers(InstallerCpanelClient $cpanel, array $data): void
     {
-        $centralDatabase = (string) $data['central_db_name'];
         $centralUser = (string) $data['central_db_user'];
         $tenantUser = (string) $data['tenant_db_user'];
 
-        if (! $cpanel->databaseExists($centralDatabase)) {
-            $cpanel->createDatabase($centralDatabase);
-        }
         if (! $cpanel->userExists($centralUser)) {
             $cpanel->createUser($centralUser, (string) $data['central_db_password']);
         }
         if (! $cpanel->userExists($tenantUser)) {
             $cpanel->createUser($tenantUser, (string) $data['tenant_db_password']);
+        }
+    }
+
+    /** @param array<string, mixed> $data */
+    private function ensureCentralDatabase(InstallerCpanelClient $cpanel, array $data): void
+    {
+        $centralDatabase = (string) $data['central_db_name'];
+        $centralUser = (string) $data['central_db_user'];
+
+        if (! $cpanel->databaseExists($centralDatabase)) {
+            $cpanel->createDatabase($centralDatabase);
         }
 
         $cpanel->grantAll($centralUser, $centralDatabase);
@@ -114,15 +131,20 @@ class WebInstaller
 
     private function verifyHostedDomain(InstallerCpanelClient $cpanel, string $requestHost, string $documentRoot): void
     {
+        $expected = $this->normalizedPath(public_path());
+        $submitted = $this->normalizedPath($documentRoot);
+        if ($expected === '' || $submitted !== $expected) {
+            throw new RuntimeException('The installer document root must be this deployment\'s Laravel public directory.');
+        }
+
         $data = $cpanel->domainData($requestHost);
         if (strtolower((string) ($data['domain'] ?? '')) !== strtolower($requestHost)) {
             throw new RuntimeException('The cPanel API credentials do not manage the hostname currently serving the installer.');
         }
 
         $actual = $this->normalizedPath((string) ($data['documentroot'] ?? ''));
-        $expected = $this->normalizedPath($documentRoot);
-        if ($actual === '' || $expected === '' || $actual !== $expected) {
-            throw new RuntimeException("The cPanel document root [{$actual}] does not match the configured Laravel public directory [{$expected}].");
+        if ($actual === '' || $actual !== $expected) {
+            throw new RuntimeException("The cPanel document root [{$actual}] does not match the Laravel public directory [{$expected}].");
         }
     }
 
