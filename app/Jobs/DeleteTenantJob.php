@@ -54,8 +54,15 @@ class DeleteTenantJob implements ShouldQueue
             ]);
         }
 
+        $latestDeletionId = TenantDeletionRecord::query()
+            ->where('tenant_id', $this->tenantId)
+            ->latest('id')
+            ->value('id');
+
         $tenant = Tenant::query()->find($this->tenantId);
-        if ($tenant instanceof Tenant && $tenant->status === 'deleting') {
+        if ($tenant instanceof Tenant
+            && $tenant->status === 'deleting'
+            && (int) $latestDeletionId === $this->deletionRecordId) {
             $restoreStatus = in_array($this->restoreStatus, ['suspended', 'failed'], true)
                 ? $this->restoreStatus
                 : ($tenant->provisioning_status === 'failed' ? 'failed' : 'suspended');
