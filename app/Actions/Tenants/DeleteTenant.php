@@ -62,11 +62,13 @@ class DeleteTenant
         } else {
             $results['platform_domain'] = ['status' => 'not_applicable', 'target' => null];
         }
+        $this->recordProgress($history, $results);
 
         foreach ($custom as $domain) {
             $results['custom_domain:'.$domain] = $this->attemptCleanup($domain, function () use ($domain): void {
                 $this->customDomains->deleteCustomDomain($domain);
             });
+            $this->recordProgress($history, $results);
         }
 
         if (File::isDirectory($storagePath)) {
@@ -78,6 +80,7 @@ class DeleteTenant
         } else {
             $results['storage'] = ['status' => 'not_present', 'target' => $storagePath];
         }
+        $this->recordProgress($history, $results);
 
         if ($database !== '') {
             $results['database'] = $this->attemptCleanup($database, function () use ($database): void {
@@ -86,6 +89,7 @@ class DeleteTenant
         } else {
             $results['database'] = ['status' => 'not_applicable', 'target' => null];
         }
+        $this->recordProgress($history, $results);
 
         $hasWarnings = collect($results)->contains(fn (array $result): bool => $result['status'] === 'failed');
 
@@ -129,7 +133,13 @@ class DeleteTenant
         return $history;
     }
 
-    /** @return array{status:string,target:string,error?:string} */
+    /** @param array<string, array{status:string,target:string|null,error?:string}> $results */
+    private function recordProgress(TenantDeletionRecord $history, array $results): void
+    {
+        $history->update(['cleanup_results' => $results]);
+    }
+
+    /** @return array{status:string,target:string|null,error?:string} */
     private function attemptCleanup(string $target, callable $cleanup): array
     {
         try {
