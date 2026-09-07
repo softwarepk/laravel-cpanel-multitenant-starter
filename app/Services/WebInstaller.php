@@ -203,7 +203,7 @@ class WebInstaller
                 $centralDatabase,
             );
         } catch (RuntimeException $e) {
-            throw new RuntimeException("Central database [{$centralDatabase}] already exists, but it could not be safely inspected with user [{$centralUser}]. Grant that user access first or choose a new empty database name.", previous: $e);
+            throw new RuntimeException("Central database [{$centralDatabase}] already exists, but it could not be safely inspected with user [{$centralUser}]. Grant that user access first or choose a new empty database name.", $e->getCode(), previous: $e);
         }
 
         if ($this->databaseHasTables($centralPdo)) {
@@ -308,7 +308,7 @@ class WebInstaller
         try {
             $this->pdo($host, $port, $user, $password);
         } catch (RuntimeException $e) {
-            throw new RuntimeException("Database user [{$user}] already exists, but the supplied password does not authenticate at [{$host}:{$port}]. Enter that user's existing password or choose a new database username.", previous: $e);
+            throw new RuntimeException("Database user [{$user}] already exists, but the supplied password does not authenticate at [{$host}:{$port}]. Enter that user's existing password or choose a new database username.", $e->getCode(), previous: $e);
         }
     }
 
