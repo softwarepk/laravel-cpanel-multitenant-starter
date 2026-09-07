@@ -32,12 +32,17 @@
             (() => {
                 if (window.ControlCenterOperation) return;
 
-                let activeOverlay = null;
                 let appShell = null;
                 let beforeUnloadHandler = null;
 
                 const overlayFor = (id) => document.getElementById(id);
                 const clampProgress = (value) => Math.max(0, Math.min(100, Number(value) || 0));
+
+                const removeNavigationWarning = () => {
+                    if (!beforeUnloadHandler) return;
+                    window.removeEventListener('beforeunload', beforeUnloadHandler);
+                    beforeUnloadHandler = null;
+                };
 
                 const update = (id, data = {}) => {
                     const overlay = overlayFor(id);
@@ -69,7 +74,6 @@
                     document.body.classList.add('overflow-hidden');
                     overlay.classList.remove('hidden');
                     overlay.setAttribute('aria-hidden', 'false');
-                    activeOverlay = overlay;
                     update(id, data);
 
                     beforeUnloadHandler ??= (event) => {
@@ -78,6 +82,10 @@
                     };
                     window.addEventListener('beforeunload', beforeUnloadHandler);
                     window.setTimeout(() => overlay.focus(), 0);
+                };
+
+                const allowNavigation = () => {
+                    removeNavigationWarning();
                 };
 
                 const end = (id) => {
@@ -89,16 +97,11 @@
 
                     if (appShell) appShell.inert = false;
                     document.body.classList.remove('overflow-hidden');
-                    activeOverlay = null;
                     appShell = null;
-
-                    if (beforeUnloadHandler) {
-                        window.removeEventListener('beforeunload', beforeUnloadHandler);
-                        beforeUnloadHandler = null;
-                    }
+                    removeNavigationWarning();
                 };
 
-                window.ControlCenterOperation = { begin, update, end };
+                window.ControlCenterOperation = { begin, update, allowNavigation, end };
             })();
         </script>
     @endpush
