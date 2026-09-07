@@ -32,12 +32,8 @@ class CentralTenantController extends Controller
             }
 
             $ready = $https->isReady($platform->domain);
-            $platform->update([
-                'status' => $ready ? 'active' : 'pending',
-                'ssl_verified_at' => $ready ? now() : null,
-            ]);
-
             if ($ready) {
+                $platform->update(['status' => 'active', 'ssl_verified_at' => now()]);
                 $audit->log('tenant.platform_https_reverified', 'Trusted HTTPS certificate confirmed for an active tenant.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $platform->domain], request: $request);
             }
 
@@ -46,12 +42,12 @@ class CentralTenantController extends Controller
                     'ready' => $ready,
                     'status' => 'active',
                     'provisioning_status' => 'active',
-                    'message' => $ready ? 'Trusted HTTPS is ready.' : 'HTTPS certificate is not yet trusted.',
+                    'message' => $ready ? 'Trusted HTTPS is ready.' : 'HTTPS could not be confirmed. No tenant lifecycle or domain state was changed.',
                     'redirect' => route('central.tenants.show', $tenant),
                 ], $ready ? 200 : 202);
             }
 
-            return back()->with('status', $ready ? 'Trusted HTTPS is ready.' : 'HTTPS certificate is not yet trusted.');
+            return back()->with('status', $ready ? 'Trusted HTTPS is ready.' : 'HTTPS could not be confirmed. No tenant lifecycle or domain state was changed.');
         }
 
         abort_unless(
