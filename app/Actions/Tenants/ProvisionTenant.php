@@ -80,8 +80,14 @@ class ProvisionTenant
         return $tenant->refresh();
     }
 
-    public function handle(string $tenantId, string $name, string $adminName, string $adminEmail, string $adminPassword): Tenant
-    {
+    public function handle(
+        string $tenantId,
+        string $name,
+        string $adminName,
+        string $adminEmail,
+        string $adminPassword,
+        ?string $operationId = null,
+    ): Tenant {
         $tenantId = strtolower(trim($tenantId));
         validator(['password' => $adminPassword], ['password' => ['required', 'string', Password::default()]])->validate();
 
@@ -89,6 +95,11 @@ class ProvisionTenant
         $rootDomain = $this->platformRootDomain();
         $documentRoot = $this->platformDocumentRoot();
         $tenant = $this->reserve($tenantId, $name, $adminEmail);
+
+        if (! $this->operationIsCurrent($tenant, $operationId)) {
+            return $tenant->refresh();
+        }
+
         $databaseName = $this->databaseNameFor($tenant, $tenantId);
 
         if (Tenant::query()->where('database_name', $databaseName)->whereKeyNot($tenantId)->exists()) {
@@ -117,14 +128,28 @@ class ProvisionTenant
         ]);
 
         try {
+            if (! $this->operationIsCurrent($tenant, $operationId)) {
+                return $tenant->refresh();
+            }
+
             $tenant->update(['provisioning_status' => 'domain']);
             $platform->update(['status' => 'pending', 'ssl_verified_at' => null]);
             $this->domains->ensurePlatformDomainReady($platformDomain, $rootDomain, $documentRoot);
+
+            if (! $this->operationIsCurrent($tenant, $operationId)) {
+                return $tenant->refresh();
+            }
+
             $platform->update(['cpanel_verified_at' => now(), 'is_primary' => true]);
             $this->audit->log('tenant.platform_domain_ready', 'Tenant platform domain created or confirmed.', tenantId: $tenantId, context: ['domain' => $platformDomain]);
 
             $tenant->update(['provisioning_status' => 'database']);
             $this->databases->ensureDatabaseReady($databaseName);
+
+            if (! $this->operationIsCurrent($tenant, $operationId)) {
+                return $tenant->refresh();
+            }
+
             $this->audit->log('tenant.database_ready', 'Tenant database created or confirmed.', tenantId: $tenantId, context: ['database' => $databaseName]);
 
             $tenant->update(['provisioning_status' => 'migrating']);
@@ -141,6 +166,10 @@ class ProvisionTenant
                 }
             });
 
+            if (! $this->operationIsCurrent($tenant, $operationId)) {
+                return $tenant->refresh();
+            }
+
             $tenant->update(['provisioning_status' => 'administrator']);
             $tenant->run(function () use ($adminName, $adminEmail, $adminPassword): void {
                 $admin = User::query()->firstOrNew(['email' => $adminEmail]);
@@ -151,6 +180,10 @@ class ProvisionTenant
                 $admin->save();
             });
 
+            if (! $this->operationIsCurrent($tenant, $operationId)) {
+                return $tenant->refresh();
+            }
+
             $tenant->update([
                 'status' => 'provisioning',
                 'provisioning_status' => 'https_pending',
@@ -158,7 +191,15 @@ class ProvisionTenant
                 'suspended_at' => null,
             ]);
 
+            if (! $this->operationIsCurrent($tenant, $operationId)) {
+                return $tenant->refresh();
+            }
+
             if ($this->https->isReady($platformDomain)) {
+                if (! $this->operationIsCurrent($tenant, $operationId)) {
+                    return $tenant->refresh();
+                }
+
                 $this->activateAfterHttps($tenant, $platform);
             } else {
                 $this->audit->log('tenant.platform_https_pending', 'Tenant application is ready and waiting for a trusted HTTPS certificate.', tenantId: $tenantId, context: ['domain' => $platformDomain]);
@@ -166,6 +207,10 @@ class ProvisionTenant
 
             return $tenant->refresh();
         } catch (Throwable $e) {
+            if (! $this->operationIsCurrent($tenant, $operationId)) {
+                return $tenant->refresh();
+            }
+
             $tenant->update([
                 'status' => 'failed',
                 'provisioning_status' => 'failed',
@@ -201,6 +246,17 @@ class ProvisionTenant
         }
 
         return $tenantId.'.'.$root;
+    }
+
+    private function operationIsCurrent(Tenant $tenant, ?string $operationId): bool
+    {
+        if ($operationId === null) {
+            return true;
+        }
+
+        $tenant->refresh();
+
+        return (string) $tenant->getInternal('provisioning_operation_id') === $operationId;
     }
 
     private function platformRootDomain(): string
