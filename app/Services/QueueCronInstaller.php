@@ -141,7 +141,7 @@ class QueueCronInstaller
             'configured' => false,
             'status' => 'manual_required',
             'schedule' => $plan['schedule'],
-            'command' => $plan['command'] ?? $plan['worker_command'],
+            'command' => $plan['command'],
             'message' => $message,
         ];
     }
