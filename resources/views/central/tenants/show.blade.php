@@ -134,15 +134,20 @@
         <section class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
             <h2 class="font-semibold">Lifecycle</h2>
 
-            @if($tenant->provisioning_status !== 'active')
-                <p class="mt-2 text-sm text-zinc-500">Lifecycle actions become available after provisioning reaches an operational state.</p>
-            @elseif($tenant->status === 'deleting')
+            @if($tenant->status === 'deleting')
                 <p class="mt-2 text-sm text-zinc-500">Permanent deletion is queued or running. Tenant configuration is locked until the operation completes or fails.</p>
+            @elseif($tenant->provisioning_status === 'failed')
+                <p class="mt-2 text-sm text-zinc-500">Provisioning did not complete. You can retry provisioning above, or permanently remove this failed tenant and any partially created infrastructure.</p>
+                @if(! $deletionInProgress)
+                    <x-central.tenant-delete-form :tenant="$tenant" :failed-provisioning="true" />
+                @endif
+            @elseif($tenant->provisioning_status !== 'active')
+                <p class="mt-2 text-sm text-zinc-500">Lifecycle actions become available after provisioning reaches an operational state.</p>
             @elseif($tenant->status === 'active')
                 <p class="mt-2 text-sm text-zinc-500">Suspension immediately blocks tenant hosts without deleting data.</p>
-                <form method="POST" action="{{ route('central.tenants.suspend', $tenant) }}" class="mt-4" onsubmit="return confirm('Suspend this tenant? Users will immediately lose access, but no tenant data will be deleted.');">
+                <form id="tenant-suspend-form" method="POST" action="{{ route('central.tenants.suspend', $tenant) }}" class="mt-4">
                     @csrf
-                    <input type="hidden" name="confirmed" value="1">
+                    <input type="hidden" name="confirmed" value="0">
                     <button class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">Suspend tenant</button>
                 </form>
             @elseif($tenant->status === 'suspended')
@@ -155,20 +160,7 @@
                 @endif
 
                 @if(! $deletionInProgress)
-                    <div id="deletion-errors" class="mt-4 hidden rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"></div>
-                    <form id="tenant-delete-form" method="POST" action="{{ route('central.tenants.destroy', $tenant) }}" class="mt-6 space-y-3 border-t border-zinc-200 pt-5 dark:border-zinc-800" autocomplete="off">
-                        @csrf
-                        @method('DELETE')
-                        <div class="text-sm font-semibold text-red-700">Permanent deletion</div>
-                        <p class="text-xs leading-5 text-zinc-500">The application will attempt to remove the managed platform domain, custom domains, tenant storage, and tenant database. Cleanup history is retained under Central Activity.</p>
-                        <input name="tenant_id_confirmation" placeholder="Type tenant ID: {{ $tenant->id }}" autocomplete="off" required class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950">
-                        <div>
-                            <label for="deletion-current-password" class="mb-1.5 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Control Center administrator password</label>
-                            <input id="deletion-current-password" name="current_password" type="password" placeholder="Enter your Control Center admin password" autocomplete="new-password" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" required class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950">
-                            <p class="mt-1.5 text-xs leading-5 text-zinc-500">Enter the password for the Control Center administrator account you are currently signed in with. This must be entered manually to confirm permanent deletion.</p>
-                        </div>
-                        <button class="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white">Permanently delete</button>
-                    </form>
+                    <x-central.tenant-delete-form :tenant="$tenant" />
                 @endif
             @endif
         </section>
