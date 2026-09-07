@@ -25,8 +25,8 @@ class DeleteTenant
 
     public function handle(Tenant $tenant, ?CentralAdmin $admin = null): TenantDeletionRecord
     {
-        if ($tenant->status !== 'suspended') {
-            throw new RuntimeException('A tenant must be suspended before it can be permanently deleted.');
+        if (! in_array($tenant->status, ['suspended', 'failed'], true)) {
+            throw new RuntimeException('A tenant must be suspended or have failed provisioning before it can be permanently deleted.');
         }
 
         $tenantId = (string) $tenant->getTenantKey();
