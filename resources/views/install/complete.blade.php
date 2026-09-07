@@ -15,6 +15,7 @@
         dl { display: grid; grid-template-columns: 180px 1fr; gap: 10px 16px; background: #f8f9fb; border-radius: 10px; padding: 18px; margin: 24px 0; }
         dt { font-weight: 700; } dd { margin: 0; word-break: break-all; }
         a { display: inline-block; background: #172033; color: white; text-decoration: none; font-weight: 700; border-radius: 9px; padding: 12px 18px; }
+        code { background: #f0f2f5; border-radius: 5px; padding: 2px 5px; }
     </style>
 </head>
 <body>
@@ -27,8 +28,9 @@
             <dt>Control Center</dt><dd>https://{{ $centralDomain }}</dd>
             <dt>Central database</dt><dd>{{ $centralDatabase }}</dd>
             <dt>Tenant DB user</dt><dd>{{ $tenantDatabaseUser }}</dd>
+            <dt>Tenant lifecycle</dt><dd>Synchronous — no queue worker or cron required</dd>
         </dl>
-        <p>The next stage is to sign in and provision the first disposable tenant so cPanel subdomain, database, migration, HTTPS and isolation behavior can be validated end to end.</p>
+        <p>Before using the normal UI, make sure the frontend build is present at <code>public/build/manifest.json</code>. Then sign in and provision the first disposable tenant so cPanel subdomain, database, migration, HTTPS and isolation behavior can be validated end to end.</p>
         <a href="/central/login">Open Control Center</a>
     </section>
 </main>

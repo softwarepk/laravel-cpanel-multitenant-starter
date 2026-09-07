@@ -23,7 +23,7 @@ class DeleteTenant
         private readonly CentralAuditLogger $audit,
     ) {}
 
-    public function begin(Tenant $tenant, ?CentralAdmin $admin = null): TenantDeletionRecord
+    public function handle(Tenant $tenant, ?CentralAdmin $admin = null): TenantDeletionRecord
     {
         if (! in_array($tenant->status, ['suspended', 'failed'], true)) {
             throw new RuntimeException('A tenant must be suspended or have failed provisioning before it can be permanently deleted.');
@@ -34,6 +34,7 @@ class DeleteTenant
         $domains = $tenant->domains()->get(['domain', 'type']);
         $platform = $domains->firstWhere('type', 'platform')?->domain;
         $custom = $domains->where('type', 'custom')->pluck('domain')->values()->all();
+        $storagePath = $this->tenantStoragePath($tenantId);
 
         $history = TenantDeletionRecord::query()->create([
             'tenant_id' => $tenantId,
@@ -46,84 +47,44 @@ class DeleteTenant
             'cleanup_results' => [],
         ]);
 
-        $this->audit->log('tenant.deletion_started', 'Permanent tenant deletion queued.', tenantId: $tenantId, context: [
+        $this->audit->log('tenant.deletion_started', 'Permanent tenant deletion started.', tenantId: $tenantId, context: [
             'database' => $database,
             'domains' => $domains->pluck('domain')->all(),
             'deletion_record_id' => $history->getKey(),
         ], admin: $admin);
 
-        return $history;
-    }
+        $results = [];
 
-    public function handle(Tenant $tenant, ?CentralAdmin $admin = null, ?TenantDeletionRecord $history = null): TenantDeletionRecord
-    {
-        if (! in_array($tenant->status, ['suspended', 'failed', 'deleting'], true)) {
-            throw new RuntimeException('A tenant must be suspended, have failed provisioning, or already be deleting before it can be permanently deleted.');
-        }
-
-        $tenantId = (string) $tenant->getTenantKey();
-        $history ??= $this->begin($tenant, $admin);
-
-        if ((string) $history->tenant_id !== $tenantId) {
-            throw new RuntimeException('Deletion history does not belong to this tenant.');
-        }
-
-        if ((string) $history->status !== 'started') {
-            throw new RuntimeException('Deletion history is no longer active.');
-        }
-
-        $database = (string) ($history->database_name ?? '');
-        $platform = $history->platform_domain;
-        $custom = $this->customDomainsFromHistory($history);
-        $storagePath = $this->tenantStoragePath($tenantId);
-        /** @var array<string, array{status:string,target:string|null,error?:string}> $results */
-        $results = (array) $history->cleanup_results;
-
-        if (! array_key_exists('platform_domain', $results)) {
-            if (is_string($platform) && $platform !== '') {
-                $results['platform_domain'] = $this->attemptCleanup($platform, function () use ($platform): void {
-                    $this->platformDomains->deletePlatformDomain($platform);
-                });
-            } else {
-                $results['platform_domain'] = ['status' => 'not_applicable', 'target' => null];
-            }
-            $this->recordProgress($history, $results);
+        if (is_string($platform) && $platform !== '') {
+            $results['platform_domain'] = $this->attemptCleanup($platform, function () use ($platform): void {
+                $this->platformDomains->deletePlatformDomain($platform);
+            });
+        } else {
+            $results['platform_domain'] = ['status' => 'not_applicable', 'target' => null];
         }
 
         foreach ($custom as $domain) {
-            $key = 'custom_domain:'.$domain;
-            if (array_key_exists($key, $results)) {
-                continue;
-            }
-
-            $results[$key] = $this->attemptCleanup($domain, function () use ($domain): void {
+            $results['custom_domain:'.$domain] = $this->attemptCleanup($domain, function () use ($domain): void {
                 $this->customDomains->deleteCustomDomain($domain);
             });
-            $this->recordProgress($history, $results);
         }
 
-        if (! array_key_exists('storage', $results)) {
-            if (File::isDirectory($storagePath)) {
-                $results['storage'] = $this->attemptCleanup($storagePath, function () use ($storagePath): void {
-                    if (! File::deleteDirectory($storagePath)) {
-                        throw new RuntimeException('Tenant storage could not be deleted.');
-                    }
-                });
-            } else {
-                $results['storage'] = ['status' => 'not_present', 'target' => $storagePath];
-            }
-            $this->recordProgress($history, $results);
+        if (File::isDirectory($storagePath)) {
+            $results['storage'] = $this->attemptCleanup($storagePath, function () use ($storagePath): void {
+                if (! File::deleteDirectory($storagePath)) {
+                    throw new RuntimeException('Tenant storage could not be deleted.');
+                }
+            });
+        } else {
+            $results['storage'] = ['status' => 'not_present', 'target' => $storagePath];
         }
 
-        if (! array_key_exists('database', $results)) {
-            if ($database !== '') {
-                $results['database'] = $this->attemptCleanup($database, function () use ($database): void {
-                    $this->databases->deleteDatabase($database);
-                });
-            } else {
-                $results['database'] = ['status' => 'not_applicable', 'target' => null];
-            }
-            $this->recordProgress($history, $results);
+        if ($database !== '') {
+            $results['database'] = $this->attemptCleanup($database, function () use ($database): void {
+                $this->databases->deleteDatabase($database);
+            });
+        } else {
+            $results['database'] = ['status' => 'not_applicable', 'target' => null];
         }
 
         $hasWarnings = collect($results)->contains(fn (array $result): bool => $result['status'] === 'failed');
@@ -168,31 +129,7 @@ class DeleteTenant
         return $history;
     }
 
-    /** @param array<string, array{status:string,target:string|null,error?:string}> $results */
-    private function recordProgress(TenantDeletionRecord $history, array $results): void
-    {
-        $history->update(['cleanup_results' => $results]);
-    }
-
-    /** @return list<string> */
-    private function customDomainsFromHistory(TenantDeletionRecord $history): array
-    {
-        $value = $history->getAttribute('custom_domains');
-        if (! is_array($value)) {
-            return [];
-        }
-
-        $domains = [];
-        foreach ($value as $domain) {
-            if (is_string($domain) && $domain !== '') {
-                $domains[] = $domain;
-            }
-        }
-
-        return $domains;
-    }
-
-    /** @return array{status:string,target:string|null,error?:string} */
+    /** @return array{status:string,target:string,error?:string} */
     private function attemptCleanup(string $target, callable $cleanup): array
     {
         try {

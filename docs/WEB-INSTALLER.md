@@ -16,13 +16,6 @@ git clone <repository> .
 composer install --no-dev --optimize-autoloader --no-interaction
 ```
 
-The installer UI is self-contained and does not depend on Vite assets, so the frontend build can run before or after first-run configuration:
-
-```bash
-npm ci
-npm run build
-```
-
 Configure the cPanel domain document root as:
 
 ```text
@@ -31,7 +24,24 @@ Configure the cPanel domain document root as:
 
 Then browse to the application over HTTPS. A fresh production clone redirects to `/install`.
 
-## What the first page discovers
+The installer UI is self-contained and does not depend on Vite assets. Normal Control Center and tenant pages do, however, so a usable deployment must also contain `public/build/manifest.json` and the generated `public/build/assets/` files. These may be produced on cPanel with `npm ci && npm run build` or prebuilt elsewhere and deployed as `public/build/`. Node.js is not required at runtime after those assets exist.
+
+## Guided setup flow
+
+The installer presents one concern at a time rather than one large configuration form:
+
+1. **Environment** — PHP/extensions, writability, document root and HTTPS checks.
+2. **Application** — application URL, Control Center hostname, tenant platform root and DNS/document-root settings.
+3. **cPanel** — API host/user/token plus an explicit live connection test.
+4. **Databases** — central and tenant database hosts, users, passwords and naming plus an explicit read-only database verification.
+5. **Administrator** — first Control Center administrator and initial tenant-user registration options.
+6. **Review** — a non-secret summary and explicit final confirmation before installation starts.
+
+With JavaScript enabled, Back/Continue navigation progressively reveals these sections and validates the current section before moving forward. The cPanel and database steps require successful live checks after their relevant fields are entered. The final installation remains one server-side submission so secrets do not need to be persisted in a browser/server wizard session before an application key or normal Laravel session exists.
+
+The HTML remains usable without wizard JavaScript: all sections are present in the document and the final server-side validation remains authoritative.
+
+## Discovery and preflight
 
 The installer pre-fills editable values where the running application can make a reasonable inference, including:
 
@@ -47,7 +57,21 @@ The installer pre-fills editable values where the running application can make a
 - whether the web server document root already points at Laravel `public`;
 - whether the current request is trusted HTTPS.
 
-All discovered configuration fields remain editable. Existing non-secret `.env` values may be used as defaults when resuming an incomplete installation. Secrets are never redisplayed.
+Existing non-secret `.env` values may be used as defaults when resuming an incomplete installation. Secrets are never redisplayed.
+
+The cPanel **Test connection** action is read-only. It proves that the submitted token can reach cPanel, that the account manages the hostname currently serving the installer, that the document root matches this Laravel `public` directory, that the tenant platform root belongs to the account, and that cPanel can report the account's MySQL/MariaDB host.
+
+The database **Verify database configuration** action is also read-only. It:
+
+- confirms both submitted database hosts are localhost/loopback or the host reported by cPanel;
+- checks whether the central database already exists;
+- checks whether the central and tenant database users already exist;
+- verifies submitted passwords for existing database users without changing those passwords;
+- rejects an existing central database that cannot be safely inspected;
+- rejects a non-empty central database for a new installation;
+- allows a non-empty database only when it matches the database recorded for the interrupted installation being resumed.
+
+Neither preflight creates, deletes, grants, or modifies cPanel resources. The final installation repeats authoritative checks before making changes.
 
 ## Operator-supplied values
 
@@ -85,27 +109,42 @@ Because the installer has no cookie/session authentication state, conventional C
 
 cPanel, MySQL and the filesystem do not form one transaction. The installer is therefore resumable rather than pretending all external work can roll back atomically.
 
-On submission it:
+Importantly, the installation-pending marker is created **after** the submitted cPanel and database configuration passes the read-only safety checks. A failed preflight therefore cannot make an unrelated existing database eligible for resume reuse.
 
-1. creates an installation-pending marker;
-2. validates cPanel ownership/domain/document-root/database-host information;
-3. creates or verifies the central and tenant DB users;
-4. verifies the submitted database passwords by connecting to MySQL/MariaDB;
-5. creates or verifies the central database and grants the central user access;
-6. verifies a fresh central database is empty;
-7. generates or preserves the Laravel `APP_KEY`;
-8. writes production `.env` atomically with restrictive file permissions where supported;
-9. configures the current request with the new central connection;
-10. runs central migrations;
-11. creates or updates the submitted first Control Center administrator;
-12. clears stale Laravel optimization/cache artifacts;
-13. writes an installation-complete marker and removes the pending state;
-14. records `INSTALLATION_COMPLETE=true` in `.env`.
+On final submission it:
 
-If an external step fails before completion, the pending marker remains. Returning to `/install` resumes the workflow and reuses resources that were already created where safe.
+1. validates cPanel ownership/domain/document-root information again;
+2. validates database hosts/users/passwords/existing central database state again;
+3. creates an installation-pending marker containing the selected central database identity;
+4. creates or verifies the central and tenant DB users;
+5. verifies the submitted database passwords by connecting to MySQL/MariaDB;
+6. creates or verifies the central database and grants the central user access;
+7. verifies the central database is safe for this new/resumed installation;
+8. generates or preserves the Laravel `APP_KEY`;
+9. writes production `.env` atomically with restrictive file permissions where supported;
+10. configures the current request with the new central connection;
+11. runs central migrations;
+12. creates or updates the submitted first Control Center administrator;
+13. clears stale Laravel optimization/cache artifacts;
+14. writes an installation-complete marker and removes the pending state;
+15. records `INSTALLATION_COMPLETE=true` in `.env`.
+
+If an external step fails after the pending marker is created, returning to `/install` resumes the workflow and reuses resources that were already created where safe. Secrets must be re-entered because the installer deliberately does not persist them in intermediate wizard state.
+
+## Queue model
+
+The starter does not require a queue worker for tenant creation or permanent deletion. Production installation writes `QUEUE_CONNECTION=sync`, and tenant lifecycle operations run synchronously in the Control Center request. This keeps the default shared-cPanel deployment independent of cron frequency limits, Supervisor, systemd, or other external worker infrastructure.
+
+Applications that later need asynchronous work may opt into Laravel's other queue drivers as a deliberate deployment-specific enhancement.
 
 ## After installation
 
 The installer locks itself. Requests to `/install` on the central domain redirect to `/central/login`; tenant hosts do not expose it.
 
-The next staging step is to sign in to the Control Center and provision at least two disposable tenants. Validate real cPanel subdomain creation, tenant database creation/privileges, tenant migrations, initial administrators, HTTPS activation, session/cache/storage/database isolation, custom-domain lifecycle, suspension/reactivation and permanent deletion history before treating the hosting environment as production-ready.
+Before using the normal UI, confirm the frontend asset manifest exists:
+
+```text
+public/build/manifest.json
+```
+
+Then sign in and provision at least two disposable tenants. Validate real cPanel subdomain creation, tenant database creation/privileges, tenant migrations, initial administrators, HTTPS activation, session/cache/storage/database isolation, custom-domain lifecycle, suspension/reactivation and permanent deletion history before treating the hosting environment as production-ready.

@@ -27,17 +27,45 @@ class InstallationState
         return is_file($this->pendingFile());
     }
 
-    public function begin(): void
+    /** @param array<string, scalar|null> $metadata */
+    public function begin(array $metadata = []): void
     {
         $this->ensureDirectory(dirname($this->pendingFile()));
 
-        $payload = json_encode([
-            'started_at' => now()->toIso8601String(),
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $existing = $this->pendingMetadata();
+        $payload = json_encode(array_merge(
+            ['started_at' => $existing['started_at'] ?? now()->toIso8601String()],
+            $existing,
+            $metadata,
+        ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
         if ($payload === false || file_put_contents($this->pendingFile(), $payload.PHP_EOL, LOCK_EX) === false) {
             throw new RuntimeException('Unable to create the installation pending marker.');
         }
+    }
+
+    /** @return array<string, mixed> */
+    public function pendingMetadata(): array
+    {
+        if (! $this->isPending()) {
+            return [];
+        }
+
+        $contents = @file_get_contents($this->pendingFile());
+        if (! is_string($contents) || trim($contents) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($contents, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    public function pendingDatabaseMatches(string $database): bool
+    {
+        $stored = $this->pendingMetadata()['central_database'] ?? null;
+
+        return is_string($stored) && hash_equals($stored, $database);
     }
 
     /** @param array<string, scalar|null> $metadata */
