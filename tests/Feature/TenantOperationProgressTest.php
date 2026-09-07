@@ -19,12 +19,11 @@ it('reports deletion progress from durable cleanup history', function (): void {
     $controller = app(CentralTenantLifecycleController::class);
     $data = $controller->deletionStatus('progress-tenant')->getData(true);
 
-    expect($data)
-        ->status->toBe('started')
-        ->progress->toBe(25)
-        ->message->toBe('Removing custom domain portal.example.test…')
-        ->completed->toBeFalse()
-        ->failed->toBeFalse();
+    expect($data['status'])->toBe('started');
+    expect($data['progress'])->toBe(25);
+    expect($data['message'])->toBe('Removing custom domain portal.example.test…');
+    expect($data['completed'])->toBeFalse();
+    expect($data['failed'])->toBeFalse();
 
     $history->update([
         'cleanup_results' => [
@@ -36,9 +35,8 @@ it('reports deletion progress from durable cleanup history', function (): void {
 
     $data = $controller->deletionStatus('progress-tenant')->getData(true);
 
-    expect($data)
-        ->progress->toBe(72)
-        ->message->toBe('Removing the tenant database…');
+    expect($data['progress'])->toBe(72);
+    expect($data['message'])->toBe('Removing the tenant database…');
 });
 
 it('reports completed deletion progress after the tenant record is gone', function (): void {
@@ -62,10 +60,9 @@ it('reports completed deletion progress after the tenant record is gone', functi
         ->deletionStatus('deleted-tenant')
         ->getData(true);
 
-    expect($data)
-        ->status->toBe('completed')
-        ->progress->toBe(100)
-        ->completed->toBeTrue()
-        ->failed->toBeFalse()
-        ->redirect->toContain('/central/tenants');
+    expect($data['status'])->toBe('completed');
+    expect($data['progress'])->toBe(100);
+    expect($data['completed'])->toBeTrue();
+    expect($data['failed'])->toBeFalse();
+    expect($data['redirect'])->toContain('/central/tenants');
 });
