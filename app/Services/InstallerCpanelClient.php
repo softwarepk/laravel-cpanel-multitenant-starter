@@ -64,6 +64,19 @@ class InstallerCpanelClient
         return $result;
     }
 
+    public function databaseHost(): string
+    {
+        $result = $this->uapi('Variables', 'get_server_information', ['name' => 'mysql_host']);
+        $data = $result['data'] ?? null;
+        $host = is_array($data) ? ($data['mysql_host'] ?? null) : null;
+
+        if (! is_string($host) || trim($host) === '') {
+            throw new RuntimeException('cPanel did not report the MySQL/MariaDB host for this account.');
+        }
+
+        return strtolower(trim($host));
+    }
+
     public function databaseExists(string $database): bool
     {
         $result = $this->uapi('Mysql', 'list_databases');
