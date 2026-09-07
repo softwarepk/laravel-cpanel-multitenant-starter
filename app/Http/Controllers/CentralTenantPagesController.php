@@ -37,11 +37,13 @@ class CentralTenantPagesController extends Controller
     public function show(Tenant $tenant): View
     {
         $tenant->load('domains');
-        $unresolvedDeletion = TenantDeletionRecord::query()
+        $latestDeletion = TenantDeletionRecord::query()
             ->where('tenant_id', (string) $tenant->getTenantKey())
-            ->whereIn('status', ['started', 'failed'])
-            ->latest('created_at')
+            ->latest('id')
             ->first();
+        $unresolvedDeletion = $latestDeletion instanceof TenantDeletionRecord && $latestDeletion->isUnresolved()
+            ? $latestDeletion
+            : null;
 
         return view('central.tenants.show', [
             'tenant' => $tenant,
