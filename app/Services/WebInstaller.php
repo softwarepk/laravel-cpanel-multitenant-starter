@@ -30,6 +30,7 @@ class WebInstaller
 
         $this->verifyHostedDomain($cpanel, $requestHost, (string) $data['document_root']);
         $this->verifyPlatformDomain($cpanel, (string) $data['platform_domain']);
+        $this->verifyDatabaseHosts($cpanel, $data);
         $this->ensureDatabaseUsers($cpanel, $data);
 
         // Existing cPanel users are never silently given a new password. Prove
@@ -153,6 +154,20 @@ class WebInstaller
         $data = $cpanel->domainData($platformDomain);
         if (strtolower((string) ($data['domain'] ?? '')) !== strtolower($platformDomain)) {
             throw new RuntimeException("The tenant platform root [{$platformDomain}] is not managed by this cPanel account.");
+        }
+    }
+
+    /** @param array<string, mixed> $data */
+    private function verifyDatabaseHosts(InstallerCpanelClient $cpanel, array $data): void
+    {
+        $reported = strtolower($cpanel->databaseHost());
+        $safeLocalHosts = ['localhost', '127.0.0.1', '::1'];
+
+        foreach (['db_host', 'tenant_db_host'] as $key) {
+            $submitted = strtolower(trim((string) $data[$key]));
+            if (! in_array($submitted, $safeLocalHosts, true) && $submitted !== $reported) {
+                throw new RuntimeException("Database host [{$submitted}] is not localhost or the MySQL/MariaDB host reported by cPanel [{$reported}].");
+            }
         }
     }
 
