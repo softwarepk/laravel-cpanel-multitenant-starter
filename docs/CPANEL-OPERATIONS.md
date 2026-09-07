@@ -63,23 +63,42 @@ Creating a `Tenant` Eloquent record alone does not automatically create or migra
 
 ## First production setup
 
-Typical sequence:
+The preferred cPanel first-run flow uses the built-in web installer. It deliberately works before `.env`, `APP_KEY`, the central database, or database-backed sessions exist.
+
+Create the application domain in cPanel, clone the repository into that domain's directory, and install PHP dependencies:
 
 ```bash
-git clone <repository>
-cd <application>
-composer install --no-dev --optimize-autoloader
-cp .env.example .env
-php artisan key:generate
-php artisan starter:install
-php artisan migrate --force
-npm ci
-npm run build
-php artisan central:admin
-php artisan optimize
+cd /home/<cpanel-user>/<application-domain>
+git clone <repository> .
+composer install --no-dev --optimize-autoloader --no-interaction
 ```
 
-Then configure the central hostname/document root in cPanel and confirm that the Control Center is reachable over HTTPS.
+Point the cPanel domain document root at:
+
+```text
+/home/<cpanel-user>/<application-domain>/public
+```
+
+Then open the application over HTTPS. A fresh production clone redirects to `/install`.
+
+The first-run page discovers and pre-fills the hostname, Laravel paths, likely cPanel account/server values, PHP/extensions, writability, document-root state, and conventional database names. The operator supplies the cPanel API token, confirms database credentials/naming, and creates the first Control Center administrator.
+
+On submission the installer verifies that the cPanel account manages the current hostname and tenant platform root, confirms the document root, constrains database connections to localhost or the MySQL/MariaDB host reported by cPanel, creates/verifies the central database and database users, writes the production `.env`, runs central migrations, creates the first central administrator, and locks itself.
+
+The installer is resumable if an external cPanel/database/filesystem step fails. Existing resources are verified and reused where safe rather than pretending cPanel, MySQL, and the filesystem form one transaction.
+
+The installer UI is self-contained and does not depend on Vite assets. Build the normal application assets before or immediately after first-run configuration:
+
+```bash
+npm ci
+npm run build
+```
+
+After installation, continue at `/central/login` and provision a disposable tenant for the real cPanel staging exercise.
+
+See `WEB-INSTALLER.md` for the detailed installer trust model, discovered fields, recovery behavior, and completion lock.
+
+The older `php artisan starter:install` command remains useful for local/developer CLI setup; it is not the preferred production first-run path.
 
 ## Creating a tenant
 
@@ -99,7 +118,9 @@ Provisioning remains synchronous by default to keep the starter simple. A derive
 
 ## Transient cPanel behavior
 
-The cPanel HTTP client retries a small number of transient connection, rate-limit, and server failures. Domain provisioning/deprovisioning also allows a short period for cPanel's domain metadata to become consistent after a successful mutation.
+The cPanel HTTP client automatically retries only known safe read/check calls when transient connection, rate-limit, or server failures occur. Mutation calls are submitted once so a lost response cannot cause the client to unknowingly repeat a database/domain change that may already have succeeded.
+
+Domain provisioning/deprovisioning also allows a short period for cPanel's domain metadata to become consistent after a successful mutation.
 
 Logical cPanel errors are not hidden or retried indefinitely. The Control Center records provisioning failures and allows deliberate retry.
 

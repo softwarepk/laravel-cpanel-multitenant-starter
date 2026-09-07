@@ -10,7 +10,14 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
-    ->withRouting(web: __DIR__.'/../routes/web.php', commands: __DIR__.'/../routes/console.php', health: '/up')
+    ->withRouting(
+        web: __DIR__.'/../routes/web.php',
+        commands: __DIR__.'/../routes/console.php',
+        health: '/up',
+        then: static function (): void {
+            require __DIR__.'/../routes/install.php';
+        },
+    )
     ->withMiddleware(function (Middleware $middleware): void {
         // Tenant context must be resolved before the web middleware starts
         // sessions so database-backed sessions can remain tenant-local.
