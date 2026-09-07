@@ -9,8 +9,8 @@ beforeEach(function (): void {
 
     config([
         'app.env' => 'production',
-        'app.key' => null,
         'installer.complete' => false,
+        'installer.legacy_configured' => false,
         'installer.pending_file' => $directory.'/pending',
         'installer.complete_file' => $directory.'/complete',
         'tenancy.central_domains' => ['central.test'],
@@ -47,7 +47,7 @@ it('serves the installer without the normal web session middleware', function ()
 });
 
 it('treats an existing production app key as an already configured legacy deployment', function (): void {
-    config(['app.key' => 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=']);
+    config(['installer.legacy_configured' => true]);
 
     $response = $this
         ->withHeader('Host', 'central.test')
@@ -58,7 +58,7 @@ it('treats an existing production app key as an already configured legacy deploy
 });
 
 it('keeps a pending installation recoverable even after an app key has been written', function (): void {
-    config(['app.key' => 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=']);
+    config(['installer.legacy_configured' => true]);
     File::put(config('installer.pending_file'), 'pending');
 
     $response = $this
