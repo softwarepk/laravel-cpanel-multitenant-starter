@@ -177,37 +177,46 @@ class InstallationController extends Controller
             'errors' => $errors,
             'globalError' => $globalError,
             'pending' => $this->state->isPending(),
-            'initialStep' => $this->initialStep($errors, $globalError),
+            'initialStep' => $this->initialStep($request, $errors, $globalError),
         ], $status);
     }
 
     /** @param array<string, list<string>> $errors */
-    private function initialStep(array $errors, ?string $globalError): int
+    private function initialStep(Request $request, array $errors, ?string $globalError): int
     {
-        if ($globalError !== null) {
-            return 7;
-        }
+        $step = $globalError !== null ? 7 : 1;
 
-        $keys = array_keys($errors);
-        foreach ($keys as $key) {
+        foreach (array_keys($errors) as $key) {
             if (in_array($key, ['app_name', 'app_url', 'central_domain', 'platform_domain', 'document_root', 'custom_domain_dns_target'], true)) {
-                return 2;
+                $step = 2;
+                break;
             }
             if (str_starts_with($key, 'cpanel_')) {
-                return 3;
+                $step = 3;
+                break;
             }
             if (str_starts_with($key, 'db_') || str_starts_with($key, 'central_db_') || str_starts_with($key, 'tenant_db_')) {
-                return 4;
+                $step = 4;
+                break;
             }
             if (in_array($key, ['admin_name', 'admin_email', 'admin_password', 'registration', 'verification'], true)) {
-                return 6;
+                $step = 6;
+                break;
             }
             if ($key === 'confirm_install') {
-                return 7;
+                $step = 7;
+                break;
             }
         }
 
-        return 1;
+        // Secrets are intentionally never redisplayed after a POST. If the
+        // submission got beyond application validation, resume at cPanel so the
+        // operator can re-enter the token and then the DB/admin passwords in order.
+        if ($request->isMethod('post') && $step > 3) {
+            return 3;
+        }
+
+        return $step;
     }
 
     /** @return array<string, string|int|bool> */
