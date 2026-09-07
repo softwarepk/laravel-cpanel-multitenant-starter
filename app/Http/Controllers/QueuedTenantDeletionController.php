@@ -22,8 +22,9 @@ class QueuedTenantDeletionController extends Controller
 
     public function destroy(Request $request, Tenant $tenant, DeleteTenant $deleteTenant, CentralAuditLogger $audit): JsonResponse|RedirectResponse
     {
-        abort_unless($tenant->status === 'suspended', 409, 'Suspend the tenant before permanently deleting it.');
+        abort_unless(in_array($tenant->status, ['suspended', 'failed'], true), 409, 'Suspend an active tenant before deleting it. Tenants with failed provisioning may be deleted directly.');
         $tenantId = (string) $tenant->getTenantKey();
+        $restoreStatus = (string) $tenant->status;
 
         $latestDeletion = TenantDeletionRecord::query()
             ->where('tenant_id', $tenantId)
@@ -58,11 +59,11 @@ class QueuedTenantDeletionController extends Controller
         $tenant->update(['status' => 'deleting']);
 
         try {
-            DeleteTenantJob::dispatch($tenantId, (int) $history->getKey(), (int) $admin->getKey());
+            DeleteTenantJob::dispatch($tenantId, (int) $history->getKey(), (int) $admin->getKey(), $restoreStatus);
         } catch (Throwable $e) {
             report($e);
             $history->update(['status' => 'failed', 'completed_at' => now()]);
-            $tenant->update(['status' => 'suspended']);
+            $tenant->update(['status' => $restoreStatus]);
             $audit->log('tenant.deletion_failed', 'Tenant deletion could not be queued.', tenantId: $tenantId, context: ['deletion_record_id' => $history->getKey(), 'error' => $e->getMessage()], request: $request);
 
             return $request->expectsJson()
@@ -70,7 +71,9 @@ class QueuedTenantDeletionController extends Controller
                 : back()->withErrors(['deletion' => $e->getMessage()]);
         }
 
-        $message = 'Permanent deletion has been queued and will continue in the background.';
+        $message = $restoreStatus === 'failed'
+            ? 'Cleanup of the failed tenant has been queued and will continue in the background.'
+            : 'Permanent deletion has been queued and will continue in the background.';
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -139,7 +142,7 @@ class QueuedTenantDeletionController extends Controller
         if ($this->deletionIsStale($history)) {
             $history->update(['status' => 'failed', 'completed_at' => now()]);
             if ($tenant instanceof Tenant && $tenant->status === 'deleting') {
-                $tenant->update(['status' => 'suspended']);
+                $tenant->update(['status' => $this->restoreStatusFor($tenant)]);
             }
 
             return response()->json([
@@ -185,6 +188,11 @@ class QueuedTenantDeletionController extends Controller
         }
 
         return $history->updated_at->lt(now()->subMinutes(self::STALE_DELETION_MINUTES));
+    }
+
+    private function restoreStatusFor(Tenant $tenant): string
+    {
+        return $tenant->provisioning_status === 'failed' ? 'failed' : 'suspended';
     }
 
     /** @param array<string, mixed> $results @return array{int, string} */
