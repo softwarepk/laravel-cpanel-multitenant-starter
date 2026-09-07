@@ -53,3 +53,26 @@ it('treats an existing production app key as an already configured legacy deploy
 
     $response->assertRedirect('/central/login');
 });
+
+it('keeps a pending installation recoverable even after an app key has been written', function (): void {
+    config(['app.key' => 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=']);
+    File::put((string) config('installer.pending_file'), '{}');
+
+    $response = $this
+        ->withServerVariables(['HTTPS' => 'on', 'HTTP_HOST' => 'central.test', 'DOCUMENT_ROOT' => public_path()])
+        ->get('/install');
+
+    $response
+        ->assertOk()
+        ->assertSee('Resuming an incomplete installation.');
+});
+
+it('locks the installer when the completion marker exists', function (): void {
+    File::put((string) config('installer.complete_file'), '{}');
+
+    $response = $this
+        ->withServerVariables(['HTTPS' => 'on', 'HTTP_HOST' => 'central.test'])
+        ->get('/install');
+
+    $response->assertRedirect('/central/login');
+});
