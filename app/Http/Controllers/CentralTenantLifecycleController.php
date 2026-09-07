@@ -17,6 +17,8 @@ use Throwable;
 
 class CentralTenantLifecycleController extends Controller
 {
+    private const DELETION_STALE_MINUTES = 5;
+
     public function suspend(Request $request, Tenant $tenant, CentralAuditLogger $audit): RedirectResponse
     {
         $request->validate(['confirmed' => ['required', 'accepted']], ['confirmed.accepted' => 'Tenant suspension must be explicitly confirmed.']);
@@ -95,6 +97,18 @@ class CentralTenantLifecycleController extends Controller
             ]);
         }
 
+        if ($this->deletionIsStale($history)) {
+            return response()->json([
+                'tenant_id' => $tenantId,
+                'status' => 'stale',
+                'progress' => 100,
+                'message' => 'Deletion has not reported progress recently and may have stopped. Review the cleanup record, then retry permanent deletion if appropriate.',
+                'completed' => false,
+                'failed' => true,
+                'cleanup_results' => $results,
+            ]);
+        }
+
         [$progress, $message] = $this->deletionProgress($history, $results);
 
         return response()->json([
@@ -112,6 +126,21 @@ class CentralTenantLifecycleController extends Controller
     {
         abort_unless($tenant->status === 'suspended', 409, 'Suspend the tenant before permanently deleting it.');
         $tenantId = (string) $tenant->getTenantKey();
+
+        $activeDeletion = TenantDeletionRecord::query()
+            ->where('tenant_id', $tenantId)
+            ->where('status', 'started')
+            ->latest('id')
+            ->first();
+
+        if ($activeDeletion instanceof TenantDeletionRecord && ! $this->deletionIsStale($activeDeletion)) {
+            $message = 'Permanent deletion is already in progress for this tenant.';
+
+            return $request->expectsJson()
+                ? response()->json(['message' => $message, 'errors' => ['deletion' => [$message]]], 409)
+                : back()->withErrors(['deletion' => $message]);
+        }
+
         $validated = $request->validate([
             'tenant_id_confirmation' => ['required', 'string'],
             'current_password' => ['required', 'string'],
@@ -154,6 +183,15 @@ class CentralTenantLifecycleController extends Controller
         }
 
         return redirect()->route('central.tenants.index')->with('status', $message);
+    }
+
+    private function deletionIsStale(TenantDeletionRecord $history): bool
+    {
+        if ((string) $history->status !== 'started' || $history->updated_at === null) {
+            return false;
+        }
+
+        return $history->updated_at->lt(now()->subMinutes(self::DELETION_STALE_MINUTES));
     }
 
     /** @param array<string, mixed> $results @return array{int, string} */
