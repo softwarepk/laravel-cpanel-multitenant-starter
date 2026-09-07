@@ -66,3 +66,28 @@ it('reports completed deletion progress after the tenant record is gone', functi
     expect($data['failed'])->toBeFalse();
     expect($data['redirect'])->toContain('/central/tenants');
 });
+
+it('releases a stale started deletion instead of leaving the page blocked forever', function (): void {
+    $history = TenantDeletionRecord::query()->create([
+        'tenant_id' => 'stale-tenant',
+        'tenant_name' => 'Stale Tenant',
+        'database_name' => 'tenant_stale',
+        'platform_domain' => 'stale.example.test',
+        'custom_domains' => [],
+        'status' => 'started',
+        'cleanup_results' => [],
+    ]);
+
+    $history->timestamps = false;
+    $history->updated_at = now()->subMinutes(10);
+    $history->save();
+
+    $data = app(CentralTenantLifecycleController::class)
+        ->deletionStatus('stale-tenant')
+        ->getData(true);
+
+    expect($data['status'])->toBe('stale');
+    expect($data['failed'])->toBeTrue();
+    expect($data['completed'])->toBeFalse();
+    expect($data['message'])->toContain('may have stopped');
+});
