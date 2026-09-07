@@ -41,7 +41,9 @@ Do not weaken these without an explicit architectural decision:
 - tenant-originated queued work preserves tenant context;
 - central administrators are distinct from tenant users;
 - suspension must prevent tenant application access;
-- provisioning and destructive tenant/database/domain removal remain guarded and explicit.
+- provisioning and destructive tenant/database/domain removal remain guarded and explicit;
+- tenant configuration mutations must be guarded server-side by lifecycle state, not only hidden in the UI;
+- stale lifecycle work must not regain authority after a newer retry/operation takes ownership.
 
 Do not solve tenant isolation by adding `tenant_id` to every business table. The database boundary is the primary isolation boundary.
 
@@ -53,17 +55,35 @@ Project-specific business models, users, policies, settings, uploads, and workfl
 
 Before adding a central table, ask: "Would two unrelated tenant organizations reasonably share this row?" If no, it belongs in the tenant database.
 
-## Provisioning
+## Provisioning and queue lifecycle
 
 The cPanel implementation automates tenant database and domain provisioning using scoped cPanel credentials. Keep infrastructure operations behind contracts/services so hosting-specific behavior remains isolated and can be replaced when necessary.
 
-Provisioning is explicit. `ProvisionTenant` is the production-style path and `php artisan tenant:local-create` is the local SQLite path. Do not restore implicit infrastructure provisioning to a generic `TenantCreated` Eloquent/package event.
+Provisioning is explicit. Production-style tenant creation is reserved by the Control Center and completed by a central queued `ProvisionTenantJob`; `php artisan tenant:local-create` is the explicit local SQLite path. Do not restore implicit infrastructure provisioning to a generic `TenantCreated` Eloquent/package event.
+
+Production tenant creation and permanent deletion require a queue worker. The tenant-operation jobs have a 600-second timeout, the database queue reservation defaults to 900 seconds, and stale-operation recovery intentionally waits longer again. Do not shorten stale detection to the worker timeout boundary without redesigning generation/race protection.
+
+Provisioning retries use a generation/operation ID. Long-running provisioning must revalidate that generation between major stages so an older job cannot continue after a newer retry takes ownership.
+
+Deletion uses a durable `TenantDeletionRecord`. A running deletion must revalidate that record before entering later destructive stages. Stale recovery must retire the previous deletion record before creating a new attempt.
 
 Once a database name is assigned to a tenant, retries must use that persisted identity rather than recalculating it from current naming configuration.
+
+Deletion history blocks tenant/database identity reuse while cleanup is unresolved, failed, or warning-bearing. Reuse is allowed only after the latest matching deletion completed cleanly with no failed cleanup results.
 
 Never embed real cPanel credentials, account names, production domains, or database secrets in source code, tests, screenshots, or documentation.
 
 Do not make database/domain deletion an automatic consequence of deleting an Eloquent record. Infrastructure teardown must remain deliberate. Best-effort external cleanup should retain enough central history for manual follow-up when a hosting operation fails.
+
+## Lifecycle guards
+
+Treat lifecycle state as a backend authorization/safety boundary, not merely UI presentation.
+
+- Tenant application hosts require an active tenant/domain pair.
+- Suspended tenants stay suspended until the explicit reactivation action runs.
+- HTTPS verification may activate a tenant only while provisioning is specifically waiting for HTTPS; it must not reactivate suspended, failed, or deleting tenants.
+- Domain/configuration mutations are unavailable during provisioning, deletion, or unresolved deletion cleanup.
+- UI controls should mirror these rules, but direct requests must still be rejected server-side.
 
 ## Authentication
 
@@ -98,9 +118,9 @@ Every tenancy-sensitive change needs focused tests for the boundary it touches. 
 - database-name uniqueness/stability;
 - user isolation;
 - storage isolation;
-- tenant suspension;
-- custom/platform domain ownership;
-- queue tenant context;
+- tenant suspension/deletion lifecycle;
+- custom/platform domain ownership and mutation guards;
+- queue tenant context and stale operation generations;
 - explicit provisioning boundaries;
 - inability to access another tenant by guessed IDs/URLs.
 
