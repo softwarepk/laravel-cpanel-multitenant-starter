@@ -58,9 +58,12 @@ it('preflights cPanel ownership before the database step', function (): void {
         ->push(['result' => ['status' => 1, 'data' => ['mysql_host' => 'localhost']]]);
 
     $response = $this
-        ->withHeader('Host', 'central.test')
         ->withHeader('Accept', 'application/json')
-        ->withServerVariables(['HTTPS' => 'on', 'DOCUMENT_ROOT' => public_path()])
+        ->withServerVariables([
+            'HTTP_HOST' => 'central.test',
+            'HTTPS' => 'on',
+            'DOCUMENT_ROOT' => public_path(),
+        ])
         ->post('/install/cpanel-check', [
             'central_domain' => 'central.test',
             'platform_domain' => 'central.test',
