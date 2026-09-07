@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Actions\Tenants\ProvisionTenant;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Services\CentralAuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -20,6 +21,17 @@ class CentralTenantResumeController extends Controller
             || ($tenant->status === 'provisioning' && ! in_array($stage, ['active', 'https_pending'], true));
 
         abort_unless($resumable, 409, 'This tenant is not in a provisioning state that can be resumed.');
+
+        $latestDeletion = TenantDeletionRecord::query()
+            ->where('tenant_id', (string) $tenant->getTenantKey())
+            ->latest('id')
+            ->first();
+
+        abort_if(
+            $latestDeletion instanceof TenantDeletionRecord && $latestDeletion->isUnresolved(),
+            409,
+            'Provisioning cannot be resumed while permanent-deletion cleanup is unresolved.',
+        );
 
         $request->merge(['admin_email' => strtolower(trim((string) $request->input('admin_email')))]);
         $validated = $request->validate([
