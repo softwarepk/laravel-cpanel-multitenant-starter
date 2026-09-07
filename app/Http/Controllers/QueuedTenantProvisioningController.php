@@ -172,7 +172,7 @@ class QueuedTenantProvisioningController extends Controller
             return false;
         }
 
-        return $tenant->updated_at !== null && $tenant->updated_at->lt(now()->subMinutes(self::STALE_PROVISIONING_MINUTES));
+        return $tenant->updated_at->lt(now()->subMinutes(self::STALE_PROVISIONING_MINUTES));
     }
 
     private function provisioningMessage(string $status): string
