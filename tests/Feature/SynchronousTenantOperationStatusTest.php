@@ -49,3 +49,13 @@ it('reports completed synchronous deletion with the tenants redirect', function 
         ->and($data['progress'])->toBe(100)
         ->and($data['redirect'])->toBe(route('central.tenants.index'));
 });
+
+it('keeps lifecycle confirmations inside the control center UI', function (): void {
+    $tenantView = file_get_contents(resource_path('views/central/tenants/show.blade.php'));
+    $suspendComponent = file_get_contents(resource_path('views/components/central/tenant-suspend-confirmation.blade.php'));
+
+    expect($tenantView)->not->toBeFalse()
+        ->and($tenantView)->not->toContain('window.confirm')
+        ->and($suspendComponent)->not->toBeFalse()
+        ->and($suspendComponent)->toContain('<dialog');
+});
