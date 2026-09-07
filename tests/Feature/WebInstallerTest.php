@@ -111,9 +111,9 @@ it('preflights new database resources without changing them', function (): void 
             'ok' => true,
             'database_host' => 'localhost',
         ])
-        ->assertJsonFragment(['Central database [tester_central] does not exist and will be created.'])
-        ->assertJsonFragment(['Central database user [tester_ctl] does not exist and will be created.'])
-        ->assertJsonFragment(['Tenant database user [tester_app] does not exist and will be created.']);
+        ->assertJsonPath('checks.1', 'Central database user [tester_ctl] does not exist and will be created.')
+        ->assertJsonPath('checks.2', 'Tenant database user [tester_app] does not exist and will be created.')
+        ->assertJsonPath('checks.3', 'Central database [tester_central] does not exist and will be created.');
 
     Http::assertSentCount(4);
 });
