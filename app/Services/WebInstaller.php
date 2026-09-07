@@ -88,6 +88,15 @@ class WebInstaller
             ],
         );
 
+        // Keep this request on non-database stores until the fresh schema exists
+        // and the installer has fully completed. The .env already contains the
+        // desired production stores for the next request.
+        config([
+            'cache.default' => 'array',
+            'session.driver' => 'array',
+            'queue.default' => 'sync',
+        ]);
+
         Artisan::call('optimize:clear');
 
         // The .env flag is the authoritative durable lock. The completion marker
