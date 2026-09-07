@@ -67,6 +67,54 @@ it('reports completed deletion progress after the tenant record is gone', functi
     expect($data['redirect'])->toContain('/central/tenants');
 });
 
+it('does not confuse an older clean deletion with deletion of a recreated tenant', function (): void {
+    TenantDeletionRecord::query()->create([
+        'tenant_id' => (string) $this->testTenant->getTenantKey(),
+        'tenant_name' => 'Previous Tenant Generation',
+        'database_name' => (string) $this->testTenant->database_name,
+        'platform_domain' => 'tenant.localhost',
+        'custom_domains' => [],
+        'status' => 'completed',
+        'cleanup_results' => [
+            'platform_domain' => ['status' => 'deleted', 'target' => 'tenant.localhost'],
+            'storage' => ['status' => 'not_present', 'target' => '/tmp/test-tenant'],
+            'database' => ['status' => 'deleted', 'target' => (string) $this->testTenant->database_name],
+            'central_record' => ['status' => 'deleted', 'target' => (string) $this->testTenant->getTenantKey()],
+        ],
+        'completed_at' => now(),
+    ]);
+
+    $data = app(CentralTenantLifecycleController::class)
+        ->deletionStatus((string) $this->testTenant->getTenantKey())
+        ->getData(true);
+
+    expect($data['status'])->toBe('starting');
+    expect($data['completed'])->toBeFalse();
+    expect($data['failed'])->toBeFalse();
+});
+
+it('allows identity reuse only after a clean completed deletion', function (): void {
+    $clean = new TenantDeletionRecord([
+        'status' => 'completed',
+        'cleanup_results' => [
+            'database' => ['status' => 'deleted', 'target' => 'tenant_clean'],
+        ],
+    ]);
+    $warning = new TenantDeletionRecord([
+        'status' => 'completed_with_warnings',
+        'cleanup_results' => [
+            'database' => ['status' => 'failed', 'target' => 'tenant_warning', 'error' => 'cleanup failed'],
+        ],
+    ]);
+    $failed = new TenantDeletionRecord(['status' => 'failed', 'cleanup_results' => []]);
+    $started = new TenantDeletionRecord(['status' => 'started', 'cleanup_results' => []]);
+
+    expect($clean->blocksIdentityReuse())->toBeFalse();
+    expect($warning->blocksIdentityReuse())->toBeTrue();
+    expect($failed->blocksIdentityReuse())->toBeTrue();
+    expect($started->blocksIdentityReuse())->toBeTrue();
+});
+
 it('releases a stale started deletion instead of leaving the page blocked forever', function (): void {
     $history = TenantDeletionRecord::query()->create([
         'tenant_id' => 'stale-tenant',
