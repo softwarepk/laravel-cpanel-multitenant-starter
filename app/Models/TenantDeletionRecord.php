@@ -52,4 +52,14 @@ class TenantDeletionRecord extends Model
 
         return false;
     }
+
+    public function isUnresolved(): bool
+    {
+        return in_array((string) $this->status, ['started', 'failed'], true);
+    }
+
+    public function blocksIdentityReuse(): bool
+    {
+        return (string) $this->status !== 'completed' || $this->hasCleanupFailures();
+    }
 }
