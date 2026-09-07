@@ -51,8 +51,8 @@ class InstallationState
             throw new RuntimeException('Unable to create the installation completion marker.');
         }
 
-        if (is_file($this->pendingFile()) && ! unlink($this->pendingFile())) {
-            throw new RuntimeException('Installation completed, but the pending marker could not be removed.');
+        if (is_file($this->pendingFile())) {
+            @unlink($this->pendingFile());
         }
     }
 
