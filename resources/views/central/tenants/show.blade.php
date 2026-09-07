@@ -4,8 +4,10 @@
 @php
     $primary = $tenant->domains->firstWhere('is_primary', true) ?? $tenant->domains->firstWhere('type', 'platform');
     $provisioningInProgress = $tenant->status === 'provisioning' && ! in_array($tenant->provisioning_status, ['active', 'failed'], true);
-    $deletionInProgress = $unresolvedDeletion?->status === 'started';
-    $configurationAvailable = $tenant->provisioning_status === 'active' && $unresolvedDeletion === null;
+    $deletionInProgress = $tenant->status === 'deleting' || $unresolvedDeletion?->status === 'started';
+    $configurationAvailable = $tenant->provisioning_status === 'active'
+        && in_array($tenant->status, ['active', 'suspended'], true)
+        && $unresolvedDeletion === null;
 @endphp
 
 <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -96,6 +98,8 @@
                 <p class="mt-2 text-xs text-zinc-500">DNS target: {{ $customDomainDnsTarget ?: 'Not configured' }}</p>
             @elseif($provisioningInProgress)
                 <p class="mt-5 rounded-xl bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-500 dark:bg-zinc-950">Domain management becomes available after tenant provisioning completes.</p>
+            @elseif($deletionInProgress)
+                <p class="mt-5 rounded-xl bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-500 dark:bg-zinc-950">Domain management is disabled while permanent deletion is queued or running.</p>
             @elseif($unresolvedDeletion)
                 <p class="mt-5 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">Domain management is disabled while deletion cleanup remains unresolved.</p>
             @endif
@@ -132,6 +136,8 @@
 
             @if($tenant->provisioning_status !== 'active')
                 <p class="mt-2 text-sm text-zinc-500">Lifecycle actions become available after provisioning reaches an operational state.</p>
+            @elseif($tenant->status === 'deleting')
+                <p class="mt-2 text-sm text-zinc-500">Permanent deletion is queued or running. Tenant configuration is locked until the operation completes or fails.</p>
             @elseif($tenant->status === 'active')
                 <p class="mt-2 text-sm text-zinc-500">Suspension immediately blocks tenant hosts without deleting data.</p>
                 <form method="POST" action="{{ route('central.tenants.suspend', $tenant) }}" class="mt-4" onsubmit="return confirm('Suspend this tenant? Users will immediately lose access, but no tenant data will be deleted.');">
@@ -274,7 +280,7 @@
         window.setTimeout(() => window.location.assign(url || @json(route('central.tenants.index'))), 650);
     };
 
-    const failDeletion = (message) => {
+    const failDeletion = (message, reload = false) => {
         if (!deletionBusy) return;
         deletionBusy = false;
         deletionRequestInFlight = false;
@@ -284,6 +290,7 @@
             deletionErrors.textContent = message || 'Tenant deletion failed.';
             deletionErrors.classList.remove('hidden');
         }
+        if (reload) window.setTimeout(() => window.location.reload(), 500);
     };
 
     const pollDeletion = async () => {
@@ -294,7 +301,7 @@
             const data = await response.json();
             if (! (deletionRequestInFlight && data.failed)) showDeletion(data);
             if (data.completed) return finishDeletion(data.redirect, data.message);
-            if (data.failed && ! deletionRequestInFlight) return failDeletion(data.message);
+            if (data.failed && ! deletionRequestInFlight) return failDeletion(data.message, true);
         } catch (_) {
             // A transient status request failure should not interrupt deletion monitoring.
         }
@@ -317,7 +324,7 @@
             window.ControlCenterOperation.begin(deletionPanelId, {
                 eyebrow: 'Permanent deletion',
                 title: 'Deleting tenant',
-                message: 'Validating confirmation and preparing permanent deletion…',
+                message: 'Validating confirmation and queueing permanent deletion…',
                 progress: 5,
             });
             scheduleDeletionPoll(150);
@@ -332,7 +339,8 @@
                 deletionRequestInFlight = false;
 
                 if (!response.ok) throw data;
-                finishDeletion(data.redirect, data.message);
+                showDeletion(data);
+                scheduleDeletionPoll(250);
             } catch (data) {
                 deletionRequestInFlight = false;
                 const message = data?.errors ? Object.values(data.errors).flat().join(' ') : (data?.message || 'Tenant deletion failed.');
