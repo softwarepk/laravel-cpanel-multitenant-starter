@@ -52,9 +52,10 @@
                 const panelFor = (id) => document.getElementById(id);
                 const clampProgress = (value) => Math.max(0, Math.min(100, Number(value) || 0));
                 const hasActiveOperation = () => active.size > 0;
+                const hasLeaveWarning = () => Array.from(active.values()).some((entry) => entry.warn !== false);
 
                 const beforeUnload = (event) => {
-                    if (!hasActiveOperation()) return;
+                    if (!hasLeaveWarning()) return;
                     event.preventDefault();
                     event.returnValue = '';
                 };
@@ -94,6 +95,10 @@
 
                     const spinner = panel.querySelector('[data-operation-spinner]');
                     if (spinner && data.complete !== undefined) spinner.classList.toggle('opacity-40', Boolean(data.complete));
+
+                    if (data.complete === true && active.has(id)) {
+                        active.get(id).warn = false;
+                    }
                 };
 
                 const begin = (id, data = {}) => {
@@ -112,7 +117,7 @@
                         document.documentElement.style.overflow = 'hidden';
                     }
 
-                    active.set(id, scope);
+                    active.set(id, {scope, warn: true});
                     panel.classList.remove('hidden');
                     panel.setAttribute('aria-hidden', 'false');
                     update(id, data);
@@ -126,10 +131,10 @@
                         panel.setAttribute('aria-hidden', 'true');
                     }
 
-                    const scope = active.get(id);
-                    if (scope) {
-                        scope.inert = false;
-                        scope.classList.remove('opacity-60');
+                    const entry = active.get(id);
+                    if (entry?.scope) {
+                        entry.scope.inert = false;
+                        entry.scope.classList.remove('opacity-60');
                     }
                     active.delete(id);
 
