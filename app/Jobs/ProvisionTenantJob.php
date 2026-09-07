@@ -23,6 +23,7 @@ class ProvisionTenantJob implements ShouldQueue
 
     public function __construct(
         public readonly string $tenantId,
+        public readonly string $operationId,
         public readonly string $adminName,
         public readonly string $adminEmail,
         private readonly string $encryptedAdminPassword,
@@ -31,6 +32,11 @@ class ProvisionTenantJob implements ShouldQueue
     public function handle(ProvisionTenant $provision, CentralAuditLogger $audit): void
     {
         $tenant = Tenant::query()->findOrFail($this->tenantId);
+
+        if ((string) $tenant->getInternal('provisioning_operation_id') !== $this->operationId) {
+            return;
+        }
+
         $tenant = $provision->handle(
             $this->tenantId,
             (string) ($tenant->name ?: $tenant->getTenantKey()),
@@ -41,6 +47,8 @@ class ProvisionTenantJob implements ShouldQueue
 
         $domain = $tenant->domains()->where('type', 'platform')->value('domain');
         $active = $tenant->isActive();
+        $tenant->setInternal('provisioning_operation_id', null);
+        $tenant->save();
 
         $audit->log(
             'tenant.provisioned',
@@ -59,19 +67,23 @@ class ProvisionTenantJob implements ShouldQueue
     {
         $tenant = Tenant::query()->find($this->tenantId);
 
-        if ($tenant instanceof Tenant && $tenant->provisioning_status !== 'active') {
+        if ($tenant instanceof Tenant
+            && (string) $tenant->getInternal('provisioning_operation_id') === $this->operationId
+            && $tenant->provisioning_status !== 'active') {
             $tenant->update([
                 'status' => 'failed',
                 'provisioning_status' => 'failed',
                 'provisioning_error' => Str::limit($exception?->getMessage() ?: 'Background provisioning stopped unexpectedly.', 4000),
             ]);
+            $tenant->setInternal('provisioning_operation_id', null);
+            $tenant->save();
         }
 
         app(CentralAuditLogger::class)->log(
             'tenant.provisioning_failed',
             'Background tenant provisioning failed.',
             tenantId: $this->tenantId,
-            context: ['error' => $exception?->getMessage()],
+            context: ['operation_id' => $this->operationId, 'error' => $exception?->getMessage()],
         );
     }
 }
