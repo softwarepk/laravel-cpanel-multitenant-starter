@@ -17,7 +17,7 @@ use Throwable;
 
 class CentralTenantLifecycleController extends Controller
 {
-    private const DELETION_STALE_MINUTES = 5;
+    private const int DELETION_STALE_MINUTES = 5;
 
     public function suspend(Request $request, Tenant $tenant, CentralAuditLogger $audit): RedirectResponse
     {
