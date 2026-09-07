@@ -201,21 +201,18 @@ class CentralTenantLifecycleController extends Controller
             return [15, 'Removing the permanent platform domain…'];
         }
 
-        $customDomains = array_values(array_filter(
-            (array) $history->custom_domains,
-            static fn (mixed $domain): bool => is_string($domain) && $domain !== '',
-        ));
+        $customDomains = $history->custom_domains ?? [];
         $completedCustoms = count(array_filter(
             array_keys($results),
-            static fn (string|int $key): bool => is_string($key) && str_starts_with($key, 'custom_domain:'),
+            static fn (string $key): bool => str_starts_with($key, 'custom_domain:'),
         ));
 
         if ($completedCustoms < count($customDomains)) {
             $ratio = $completedCustoms / max(1, count($customDomains));
             $progress = 25 + (int) floor($ratio * 25);
-            $domain = $customDomains[$completedCustoms] ?? null;
+            $domain = $customDomains[$completedCustoms];
 
-            return [$progress, is_string($domain) ? "Removing custom domain {$domain}…" : 'Removing custom domains…'];
+            return [$progress, "Removing custom domain {$domain}…"];
         }
 
         if (! array_key_exists('storage', $results)) {
