@@ -90,11 +90,15 @@ class WebInstaller
 
         Artisan::call('optimize:clear');
 
+        // The .env flag is the authoritative durable lock. The completion marker
+        // is secondary, so failure to write that redundant marker cannot turn an
+        // otherwise successful installation into an ambiguous failure.
+        $this->environment->write(['INSTALLATION_COMPLETE' => true]);
+        config(['installer.complete' => true]);
         $this->state->complete([
             'central_domain' => (string) $data['central_domain'],
             'central_database' => (string) $data['central_db_name'],
         ]);
-        $this->environment->write(['INSTALLATION_COMPLETE' => true]);
 
         return [
             'central_domain' => (string) $data['central_domain'],
