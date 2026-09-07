@@ -3,9 +3,9 @@
 <div class="mb-8"><a href="{{ route('central.tenants.index') }}" class="text-sm font-medium text-zinc-500">← Back to tenants</a><h1 class="mt-4 text-3xl font-semibold tracking-tight">Provision a new organization</h1><p class="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">The control plane creates the permanent platform hostname, isolated database, tenant schema, initial administrator, and waits for trusted HTTPS before activation.</p></div>
 
 <div id="provision-errors" class="mb-6 hidden rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"></div>
-<x-ui.blocking-operation id="tenant-provision-progress" eyebrow="Provisioning" title="Provisioning tenant" message="Reserving tenant identity…" />
+<x-ui.blocking-operation id="tenant-provision-progress" scope="tenant-provision-form" eyebrow="Provisioning" title="Provisioning tenant" message="Reserving tenant identity…" />
 
-<form id="tenant-provision-form" method="POST" action="{{ route('central.tenants.store') }}" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+<form id="tenant-provision-form" method="POST" action="{{ route('central.tenants.store') }}" class="grid gap-6 transition-opacity xl:grid-cols-[minmax(0,1fr)_360px]">
 @csrf
 <div class="space-y-6">
 <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60"><h2 class="font-semibold">Organization</h2><p class="mt-1 text-sm text-zinc-500">Core identity used by the control plane.</p><div class="mt-5 grid gap-5 sm:grid-cols-2"><div><label class="text-sm font-medium" for="name">Organization name</label><input id="name" name="name" value="{{ old('name') }}" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950" placeholder="Acme Corporation"></div><div><label class="text-sm font-medium" for="id">Tenant ID</label><input id="id" name="id" value="{{ old('id') }}" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 font-mono dark:border-zinc-700 dark:bg-zinc-950" placeholder="acme"><p class="mt-2 text-xs text-zinc-500">Lowercase letters, numbers, and hyphens. This becomes part of the permanent hostname.</p></div></div></section>
