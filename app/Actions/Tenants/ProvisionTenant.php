@@ -46,10 +46,15 @@ class ProvisionTenant
         $tenant = Tenant::query()->find($tenantId);
         $databaseName = $this->databaseNameFor($tenant, $tenantId);
 
-        if (! $tenant instanceof Tenant && TenantDeletionRecord::query()
-            ->where(fn ($query) => $query->where('tenant_id', $tenantId)->orWhere('database_name', $databaseName))
-            ->exists()) {
-            throw new InvalidArgumentException('This tenant identity was used previously and is retained in deletion history. Choose a new tenant ID rather than reusing deleted tenant infrastructure.');
+        if (! $tenant instanceof Tenant) {
+            $latestDeletion = TenantDeletionRecord::query()
+                ->where(fn ($query) => $query->where('tenant_id', $tenantId)->orWhere('database_name', $databaseName))
+                ->latest('id')
+                ->first();
+
+            if ($latestDeletion instanceof TenantDeletionRecord && $latestDeletion->blocksIdentityReuse()) {
+                throw new InvalidArgumentException('This tenant identity has unresolved or incomplete deletion cleanup. Review the latest deletion history before reusing this tenant ID.');
+            }
         }
 
         if (Tenant::query()->where('database_name', $databaseName)->whereKeyNot($tenantId)->exists()) {
