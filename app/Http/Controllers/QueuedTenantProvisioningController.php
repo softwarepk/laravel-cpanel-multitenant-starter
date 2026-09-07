@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Throwable;
 
@@ -34,16 +35,34 @@ class QueuedTenantProvisioningController extends Controller
             'id.regex' => 'The tenant ID may contain lowercase letters, numbers, and hyphens only, and must start and end with a letter or number.',
         ]);
 
+        $tenant = null;
+        $operationId = (string) Str::uuid();
+
         try {
             $tenant = $provision->reserve($validated['id'], $validated['name'], $validated['admin_email']);
+            $tenant->setInternal('provisioning_operation_id', $operationId);
+            $tenant->save();
+
             ProvisionTenantJob::dispatch(
                 (string) $tenant->getTenantKey(),
+                $operationId,
                 $validated['admin_name'],
                 $validated['admin_email'],
                 Crypt::encryptString($validated['admin_password']),
             );
         } catch (Throwable $e) {
             report($e);
+
+            if ($tenant instanceof Tenant) {
+                $tenant->update([
+                    'status' => 'failed',
+                    'provisioning_status' => 'failed',
+                    'provisioning_error' => 'Tenant provisioning could not be queued: '.$e->getMessage(),
+                ]);
+                $tenant->setInternal('provisioning_operation_id', null);
+                $tenant->save();
+            }
+
             $audit->log('tenant.provisioning_failed', 'Tenant provisioning could not be queued.', tenantId: $validated['id'], context: ['name' => $validated['name'], 'error' => $e->getMessage()], request: $request);
 
             if ($request->expectsJson()) {
@@ -53,7 +72,7 @@ class QueuedTenantProvisioningController extends Controller
             return back()->withInput($request->except(['admin_password', 'admin_password_confirmation']))->withErrors(['provisioning' => $e->getMessage()]);
         }
 
-        $audit->log('tenant.provisioning_queued', 'Tenant provisioning queued for background processing.', tenantId: (string) $tenant->getTenantKey(), context: ['name' => $tenant->name, 'database' => $tenant->database_name], request: $request);
+        $audit->log('tenant.provisioning_queued', 'Tenant provisioning queued for background processing.', tenantId: (string) $tenant->getTenantKey(), context: ['name' => $tenant->name, 'database' => $tenant->database_name, 'operation_id' => $operationId], request: $request);
         $redirect = route('central.tenants.show', $tenant);
 
         if ($request->expectsJson()) {
@@ -79,21 +98,38 @@ class QueuedTenantProvisioningController extends Controller
             'admin_password' => ['required', 'string', Password::default(), 'confirmed'],
         ]);
 
+        $operationId = (string) Str::uuid();
         $tenant->update([
             'status' => 'provisioning',
             'provisioning_status' => 'pending',
             'provisioning_error' => null,
             'initial_admin_email' => $validated['admin_email'],
         ]);
+        $tenant->setInternal('provisioning_operation_id', $operationId);
+        $tenant->save();
 
-        ProvisionTenantJob::dispatch(
-            (string) $tenant->getTenantKey(),
-            $validated['admin_name'],
-            $validated['admin_email'],
-            Crypt::encryptString($validated['admin_password']),
-        );
+        try {
+            ProvisionTenantJob::dispatch(
+                (string) $tenant->getTenantKey(),
+                $operationId,
+                $validated['admin_name'],
+                $validated['admin_email'],
+                Crypt::encryptString($validated['admin_password']),
+            );
+        } catch (Throwable $e) {
+            report($e);
+            $tenant->update([
+                'status' => 'failed',
+                'provisioning_status' => 'failed',
+                'provisioning_error' => 'Provisioning retry could not be queued: '.$e->getMessage(),
+            ]);
+            $tenant->setInternal('provisioning_operation_id', null);
+            $tenant->save();
 
-        $audit->log('tenant.provisioning_retry_queued', 'Tenant provisioning retry queued for background processing.', tenantId: (string) $tenant->getTenantKey(), request: $request);
+            return back()->withErrors(['provisioning' => $e->getMessage()]);
+        }
+
+        $audit->log('tenant.provisioning_retry_queued', 'Tenant provisioning retry queued for background processing.', tenantId: (string) $tenant->getTenantKey(), context: ['operation_id' => $operationId], request: $request);
 
         return redirect()->route('central.tenants.show', $tenant)->with('status', 'Provisioning retry queued.');
     }
@@ -111,6 +147,8 @@ class QueuedTenantProvisioningController extends Controller
                 'provisioning_status' => 'failed',
                 'provisioning_error' => 'Background provisioning stopped reporting progress before completion. Retry provisioning to continue safely from the persisted infrastructure state.',
             ]);
+            $tenant->setInternal('provisioning_operation_id', null);
+            $tenant->save();
             $tenant->refresh();
         }
 
