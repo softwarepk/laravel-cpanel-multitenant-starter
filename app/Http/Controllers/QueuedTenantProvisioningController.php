@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Actions\Tenants\ProvisionTenant;
 use App\Jobs\ProvisionTenantJob;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Services\CentralAuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -91,6 +92,14 @@ class QueuedTenantProvisioningController extends Controller
     public function retry(Request $request, Tenant $tenant, CentralAuditLogger $audit): RedirectResponse
     {
         abort_unless($tenant->provisioning_status === 'failed', 409);
+
+        $latestDeletion = TenantDeletionRecord::query()
+            ->where('tenant_id', (string) $tenant->getTenantKey())
+            ->latest('id')
+            ->first();
+
+        abort_if($latestDeletion instanceof TenantDeletionRecord && $latestDeletion->isUnresolved(), 409, 'Resolve or retry the outstanding deletion cleanup before retrying tenant provisioning.');
+
         $request->merge(['admin_email' => strtolower(trim((string) $request->input('admin_email')))]);
         $validated = $request->validate([
             'admin_name' => ['required', 'string', 'max:120'],
