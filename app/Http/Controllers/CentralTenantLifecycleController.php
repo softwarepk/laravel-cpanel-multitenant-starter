@@ -44,6 +44,70 @@ class CentralTenantLifecycleController extends Controller
         return back()->with('status', 'Tenant activated.');
     }
 
+    public function deletionStatus(string $tenantId): JsonResponse
+    {
+        $history = TenantDeletionRecord::query()
+            ->where('tenant_id', $tenantId)
+            ->latest('id')
+            ->first();
+
+        if (! $history instanceof TenantDeletionRecord) {
+            return response()->json([
+                'tenant_id' => $tenantId,
+                'status' => 'starting',
+                'progress' => 5,
+                'message' => 'Preparing permanent deletion…',
+                'completed' => false,
+                'failed' => false,
+            ]);
+        }
+
+        $status = (string) $history->status;
+        $results = (array) $history->cleanup_results;
+        $completed = in_array($status, ['completed', 'completed_with_warnings'], true);
+        $failed = $status === 'failed';
+
+        if ($completed) {
+            return response()->json([
+                'tenant_id' => $tenantId,
+                'status' => $status,
+                'progress' => 100,
+                'message' => $status === 'completed_with_warnings'
+                    ? 'Tenant deleted. Some infrastructure cleanup needs manual follow-up.'
+                    : 'Tenant and managed infrastructure were deleted.',
+                'completed' => true,
+                'failed' => false,
+                'cleanup_warnings' => $history->hasCleanupFailures(),
+                'cleanup_results' => $results,
+                'redirect' => route('central.tenants.index'),
+            ]);
+        }
+
+        if ($failed) {
+            return response()->json([
+                'tenant_id' => $tenantId,
+                'status' => $status,
+                'progress' => 100,
+                'message' => 'Deletion stopped before the central tenant record could be removed.',
+                'completed' => false,
+                'failed' => true,
+                'cleanup_results' => $results,
+            ]);
+        }
+
+        [$progress, $message] = $this->deletionProgress($history, $results);
+
+        return response()->json([
+            'tenant_id' => $tenantId,
+            'status' => $status,
+            'progress' => $progress,
+            'message' => $message,
+            'completed' => false,
+            'failed' => false,
+            'cleanup_results' => $results,
+        ]);
+    }
+
     public function destroy(Request $request, Tenant $tenant, DeleteTenant $deleteTenant, CentralAuditLogger $audit): JsonResponse|RedirectResponse
     {
         abort_unless($tenant->status === 'suspended', 409, 'Suspend the tenant before permanently deleting it.');
@@ -90,5 +154,44 @@ class CentralTenantLifecycleController extends Controller
         }
 
         return redirect()->route('central.tenants.index')->with('status', $message);
+    }
+
+    /** @param array<string, mixed> $results @return array{int, string} */
+    private function deletionProgress(TenantDeletionRecord $history, array $results): array
+    {
+        if (! array_key_exists('platform_domain', $results)) {
+            return [15, 'Removing the permanent platform domain…'];
+        }
+
+        $customDomains = array_values(array_filter(
+            (array) $history->custom_domains,
+            static fn (mixed $domain): bool => is_string($domain) && $domain !== '',
+        ));
+        $completedCustoms = count(array_filter(
+            array_keys($results),
+            static fn (string|int $key): bool => is_string($key) && str_starts_with($key, 'custom_domain:'),
+        ));
+
+        if ($completedCustoms < count($customDomains)) {
+            $ratio = $completedCustoms / max(1, count($customDomains));
+            $progress = 25 + (int) floor($ratio * 25);
+            $domain = $customDomains[$completedCustoms] ?? null;
+
+            return [$progress, is_string($domain) ? "Removing custom domain {$domain}…" : 'Removing custom domains…'];
+        }
+
+        if (! array_key_exists('storage', $results)) {
+            return [55, 'Removing tenant storage…'];
+        }
+
+        if (! array_key_exists('database', $results)) {
+            return [72, 'Removing the tenant database…'];
+        }
+
+        if (! array_key_exists('central_record', $results)) {
+            return [90, 'Finalizing central tenant records…'];
+        }
+
+        return [96, 'Finalizing permanent deletion…'];
     }
 }
