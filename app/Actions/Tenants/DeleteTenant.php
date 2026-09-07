@@ -68,9 +68,7 @@ class DeleteTenant
             throw new RuntimeException('Deletion history does not belong to this tenant.');
         }
 
-        if ((string) $history->status !== 'started') {
-            throw new RuntimeException('Deletion history is no longer active.');
-        }
+        $this->assertDeletionCurrent($tenant, $history);
 
         $database = (string) ($history->database_name ?? '');
         $platform = $history->platform_domain;
@@ -80,6 +78,8 @@ class DeleteTenant
         $results = (array) $history->cleanup_results;
 
         if (! array_key_exists('platform_domain', $results)) {
+            $this->assertDeletionCurrent($tenant, $history);
+
             if (is_string($platform) && $platform !== '') {
                 $results['platform_domain'] = $this->attemptCleanup($platform, function () use ($platform): void {
                     $this->platformDomains->deletePlatformDomain($platform);
@@ -96,6 +96,7 @@ class DeleteTenant
                 continue;
             }
 
+            $this->assertDeletionCurrent($tenant, $history);
             $results[$key] = $this->attemptCleanup($domain, function () use ($domain): void {
                 $this->customDomains->deleteCustomDomain($domain);
             });
@@ -103,6 +104,8 @@ class DeleteTenant
         }
 
         if (! array_key_exists('storage', $results)) {
+            $this->assertDeletionCurrent($tenant, $history);
+
             if (File::isDirectory($storagePath)) {
                 $results['storage'] = $this->attemptCleanup($storagePath, function () use ($storagePath): void {
                     if (! File::deleteDirectory($storagePath)) {
@@ -116,6 +119,8 @@ class DeleteTenant
         }
 
         if (! array_key_exists('database', $results)) {
+            $this->assertDeletionCurrent($tenant, $history);
+
             if ($database !== '') {
                 $results['database'] = $this->attemptCleanup($database, function () use ($database): void {
                     $this->databases->deleteDatabase($database);
@@ -126,6 +131,7 @@ class DeleteTenant
             $this->recordProgress($history, $results);
         }
 
+        $this->assertDeletionCurrent($tenant, $history);
         $hasWarnings = collect($results)->contains(fn (array $result): bool => $result['status'] === 'failed');
 
         try {
@@ -166,6 +172,19 @@ class DeleteTenant
         }
 
         return $history;
+    }
+
+    private function assertDeletionCurrent(Tenant $tenant, TenantDeletionRecord $history): void
+    {
+        $history->refresh();
+        if ((string) $history->status !== 'started') {
+            throw new RuntimeException('Deletion history is no longer active.');
+        }
+
+        $tenant->refresh();
+        if (! in_array($tenant->status, ['suspended', 'failed', 'deleting'], true)) {
+            throw new RuntimeException('Tenant lifecycle changed while deletion was running.');
+        }
     }
 
     /** @param array<string, array{status:string,target:string|null,error?:string}> $results */
