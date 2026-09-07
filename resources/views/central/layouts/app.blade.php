@@ -29,6 +29,23 @@
         </main>
     </div>
 </div>
+<script>
+(() => {
+    document.addEventListener('submit', (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || form.id !== 'tenant-suspend-form') return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        if (!window.confirm('Suspend this tenant? Users will immediately lose access, but no tenant data will be deleted.')) return;
+
+        const confirmed = form.querySelector('input[name="confirmed"]');
+        if (confirmed) confirmed.value = '1';
+        HTMLFormElement.prototype.submit.call(form);
+    }, true);
+})();
+</script>
 @fluxScripts
 @stack('scripts')
 </body>
