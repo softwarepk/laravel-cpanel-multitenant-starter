@@ -31,12 +31,12 @@ class CentralTenantLifecycleController extends Controller
     {
         abort_unless($tenant->provisioning_status === 'active', 409);
 
-        $unresolvedDeletion = TenantDeletionRecord::query()
+        $latestDeletion = TenantDeletionRecord::query()
             ->where('tenant_id', (string) $tenant->getTenantKey())
-            ->whereIn('status', ['started', 'failed'])
-            ->exists();
+            ->latest('id')
+            ->first();
 
-        abort_if($unresolvedDeletion, 409, 'This tenant has an unresolved deletion attempt. Retry or resolve deletion cleanup before reactivating it.');
+        abort_if($latestDeletion instanceof TenantDeletionRecord && $latestDeletion->isUnresolved(), 409, 'This tenant has an unresolved deletion attempt. Retry or resolve deletion cleanup before reactivating it.');
 
         $tenant->update(['status' => 'active', 'suspended_at' => null]);
         $audit->log('tenant.activated', 'Tenant activated.', tenantId: (string) $tenant->getTenantKey(), request: $request);
@@ -46,7 +46,7 @@ class CentralTenantLifecycleController extends Controller
 
     public function destroy(Request $request, Tenant $tenant, DeleteTenant $deleteTenant, CentralAuditLogger $audit): JsonResponse|RedirectResponse
     {
-        abort_unless($tenant->status === 'suspended', 409, 'Suspend the tenant before permanently deleting it.');
+        abort_unless(in_array($tenant->status, ['suspended', 'failed'], true), 409, 'Suspend an active tenant before permanently deleting it. Failed provisioning tenants may be cleaned up directly.');
         $tenantId = (string) $tenant->getTenantKey();
         $validated = $request->validate([
             'tenant_id_confirmation' => ['required', 'string'],
