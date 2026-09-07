@@ -66,6 +66,63 @@ class InstallerCpanelClient
         return $result;
     }
 
+    /** @param array<string, string|int|bool> $arguments @return array<string, mixed> */
+    public function api2(string $module, string $function, array $arguments = []): array
+    {
+        $url = sprintf('https://%s:%d/json-api/cpanel', $this->host, $this->port);
+        $query = array_merge([
+            'cpanel_jsonapi_apiversion' => 2,
+            'cpanel_jsonapi_module' => $module,
+            'cpanel_jsonapi_func' => $function,
+        ], $arguments);
+
+        try {
+            $response = Http::acceptJson()
+                ->withHeaders(['Authorization' => 'cpanel '.$this->user.':'.$this->token])
+                ->connectTimeout(5)
+                ->timeout(30)
+                ->get($url, $query);
+        } catch (ConnectionException $e) {
+            throw new RuntimeException('Unable to connect to the cPanel API host.', $e->getCode(), previous: $e);
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException('cPanel API 2 request failed with HTTP '.$response->status().'.');
+        }
+
+        $decoded = $response->json();
+        $result = is_array($decoded) ? ($decoded['cpanelresult'] ?? null) : null;
+        if (! is_array($result)) {
+            throw new RuntimeException('cPanel API 2 returned an invalid response.');
+        }
+
+        $event = $result['event'] ?? null;
+        $errors = [];
+        if (! is_array($event) || (int) ($event['result'] ?? 0) !== 1) {
+            $errors[] = trim((string) ($result['error'] ?? $result['reason'] ?? 'cPanel API 2 call failed.'));
+        }
+
+        $data = $result['data'] ?? null;
+        foreach (is_array($data) ? $data : [] as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $failed = (array_key_exists('result', $item) && (int) $item['result'] === 0)
+                || (array_key_exists('status', $item) && (int) $item['status'] === 0);
+            if ($failed) {
+                $errors[] = trim((string) ($item['reason'] ?? $item['statusmsg'] ?? 'cPanel API 2 call failed.'));
+            }
+        }
+
+        $errors = array_values(array_filter(array_unique($errors)));
+        if ($errors !== []) {
+            throw new RuntimeException(implode(' ', $errors));
+        }
+
+        return $result;
+    }
+
     public function databaseHost(): string
     {
         $result = $this->uapi('Variables', 'get_server_information', ['name' => 'mysql_host']);
@@ -123,6 +180,37 @@ class InstallerCpanelClient
         }
 
         return $data;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function cronJobs(): array
+    {
+        $result = $this->api2('Cron', 'listcron');
+        $data = $result['data'] ?? null;
+        if (! is_array($data)) {
+            return [];
+        }
+
+        $jobs = [];
+        foreach ($data as $item) {
+            if (is_array($item) && isset($item['command']) && is_string($item['command'])) {
+                $jobs[] = $item;
+            }
+        }
+
+        return $jobs;
+    }
+
+    public function addCronLine(string $command): void
+    {
+        $this->api2('Cron', 'add_line', [
+            'command' => $command,
+            'day' => '*',
+            'hour' => '*',
+            'minute' => '*',
+            'month' => '*',
+            'weekday' => '*',
+        ]);
     }
 
     private function assertPublicApiHost(): void
