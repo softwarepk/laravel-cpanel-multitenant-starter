@@ -17,7 +17,7 @@ class WebInstaller
     ) {}
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array{central_domain:string,central_database:string,tenant_database_user:string,queue:array{configured:bool,status:string,schedule:string,command:string|null,message:string}}
      */
     public function install(array $data, string $requestHost): array
