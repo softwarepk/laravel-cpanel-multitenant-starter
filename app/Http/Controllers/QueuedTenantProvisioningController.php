@@ -17,7 +17,7 @@ use Throwable;
 
 class QueuedTenantProvisioningController extends Controller
 {
-    private const int STALE_PROVISIONING_MINUTES = 10;
+    private const int STALE_PROVISIONING_MINUTES = 20;
 
     public function store(Request $request, ProvisionTenant $provision, CentralAuditLogger $audit): RedirectResponse|JsonResponse
     {
