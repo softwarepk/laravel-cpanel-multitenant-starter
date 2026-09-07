@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Actions\Tenants\ProvisionTenant;
 use App\Contracts\CustomDomainDeprovisioner;
 use App\Contracts\CustomDomainProvisioner;
 use App\Contracts\CustomDomainVerifier;
 use App\Models\Domain;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Services\CentralAuditLogger;
 use App\Services\PlatformHttpsVerifier;
 use Illuminate\Http\JsonResponse;
@@ -15,83 +15,52 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Password;
 use Throwable;
 
 class CentralTenantController extends Controller
 {
-    public function store(Request $request, ProvisionTenant $provision, CentralAuditLogger $audit): RedirectResponse|JsonResponse
-    {
-        $request->merge([
-            'id' => strtolower(trim((string) $request->input('id'))),
-            'admin_email' => strtolower(trim((string) $request->input('admin_email'))),
-        ]);
-
-        $validated = $request->validate([
-            'id' => ['required', 'string', 'max:32', 'regex:/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/', 'unique:tenants,id'],
-            'name' => ['required', 'string', 'max:120'],
-            'admin_name' => ['required', 'string', 'max:120'],
-            'admin_email' => ['required', 'email', 'max:255'],
-            'admin_password' => ['required', 'string', Password::default(), 'confirmed'],
-        ], [
-            'id.regex' => 'The tenant ID may contain lowercase letters, numbers, and hyphens only, and must start and end with a letter or number.',
-        ]);
-
-        try {
-            $tenant = $provision->handle($validated['id'], $validated['name'], $validated['admin_name'], $validated['admin_email'], $validated['admin_password']);
-        } catch (Throwable $e) {
-            report($e);
-            $audit->log('tenant.provisioning_failed', 'Tenant provisioning failed.', tenantId: $validated['id'], context: ['name' => $validated['name'], 'error' => $e->getMessage()], request: $request);
-            if ($request->expectsJson()) {
-                return response()->json(['message' => 'Tenant provisioning failed.', 'errors' => ['provisioning' => [$e->getMessage()]]], 422);
-            }
-
-            return back()->withInput($request->except(['admin_password', 'admin_password_confirmation']))->withErrors(['provisioning' => $e->getMessage()]);
-        }
-
-        $domain = $tenant->domains()->where('type', 'platform')->value('domain');
-        $active = $tenant->isActive();
-        $audit->log('tenant.provisioned', $active ? 'Tenant provisioned successfully.' : 'Tenant application provisioned and awaiting trusted HTTPS.', tenantId: (string) $tenant->getTenantKey(), context: ['name' => $tenant->name, 'domain' => $domain, 'database' => $tenant->database_name, 'https_pending' => ! $active], request: $request);
-        $redirect = route('central.tenants.show', $tenant);
-
-        if ($request->expectsJson()) {
-            return response()->json(['tenant_id' => (string) $tenant->getTenantKey(), 'status' => $tenant->status, 'provisioning_status' => $tenant->provisioning_status, 'redirect' => $redirect], $active ? 200 : 202);
-        }
-
-        return redirect($redirect)->with('status', $active ? "Tenant {$tenant->name} is active." : "Tenant {$tenant->name} is provisioned and waiting for a trusted HTTPS certificate.");
-    }
-
-    public function provisioningStatus(string $tenantId): JsonResponse
-    {
-        $tenant = Tenant::query()->with('domains')->find($tenantId);
-        if ($tenant === null) {
-            return response()->json(['tenant_id' => $tenantId, 'status' => 'starting', 'provisioning_status' => 'starting', 'message' => 'Reserving tenant identity…']);
-        }
-        $platform = $tenant->domains->firstWhere('type', 'platform');
-
-        return response()->json([
-            'tenant_id' => (string) $tenant->getTenantKey(),
-            'status' => $tenant->status,
-            'provisioning_status' => $tenant->provisioning_status,
-            'message' => $this->provisioningMessage((string) $tenant->provisioning_status),
-            'domain' => $platform?->domain,
-            'https_ready' => $platform?->ssl_verified_at !== null,
-            'redirect' => route('central.tenants.show', $tenant),
-        ]);
-    }
-
     public function checkPlatformHttps(Request $request, Tenant $tenant, PlatformHttpsVerifier $https, CentralAuditLogger $audit): JsonResponse|RedirectResponse
     {
+        $this->ensureNoUnresolvedDeletion($tenant);
         $platform = $tenant->domains()->where('type', 'platform')->firstOrFail();
-        if ($tenant->isActive() && $platform->ssl_verified_at !== null) {
-            return $request->expectsJson()
-                ? response()->json(['ready' => true, 'status' => 'active', 'provisioning_status' => 'active', 'redirect' => route('central.tenants.show', $tenant)])
-                : back()->with('status', 'HTTPS is already ready.');
+
+        if ($tenant->isActive()) {
+            if ($platform->ssl_verified_at !== null) {
+                return $request->expectsJson()
+                    ? response()->json(['ready' => true, 'status' => 'active', 'provisioning_status' => 'active', 'redirect' => route('central.tenants.show', $tenant)])
+                    : back()->with('status', 'HTTPS is already ready.');
+            }
+
+            $ready = $https->isReady($platform->domain);
+            $platform->update([
+                'status' => $ready ? 'active' : 'pending',
+                'ssl_verified_at' => $ready ? now() : null,
+            ]);
+
+            if ($ready) {
+                $audit->log('tenant.platform_https_reverified', 'Trusted HTTPS certificate confirmed for an active tenant.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $platform->domain], request: $request);
+            }
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'ready' => $ready,
+                    'status' => 'active',
+                    'provisioning_status' => 'active',
+                    'message' => $ready ? 'Trusted HTTPS is ready.' : 'HTTPS certificate is not yet trusted.',
+                    'redirect' => route('central.tenants.show', $tenant),
+                ], $ready ? 200 : 202);
+            }
+
+            return back()->with('status', $ready ? 'Trusted HTTPS is ready.' : 'HTTPS certificate is not yet trusted.');
         }
 
-        abort_unless(in_array($tenant->provisioning_status, ['https_pending', 'active'], true), 409);
+        abort_unless(
+            $tenant->status === 'provisioning' && $tenant->provisioning_status === 'https_pending',
+            409,
+            'HTTPS activation is only available while tenant provisioning is waiting for HTTPS.',
+        );
+
         if (! $https->isReady($platform->domain)) {
-            $tenant->update(['status' => 'provisioning', 'provisioning_status' => 'https_pending']);
             $platform->update(['status' => 'pending', 'ssl_verified_at' => null]);
 
             return $request->expectsJson()
@@ -110,6 +79,7 @@ class CentralTenantController extends Controller
 
     public function addCustomDomain(Request $request, Tenant $tenant, CustomDomainProvisioner $provisioner, CentralAuditLogger $audit): RedirectResponse
     {
+        $this->ensureTenantConfigurationMutable($tenant);
         $request->merge(['domain' => strtolower(trim((string) $request->input('domain')))]);
         $validated = $request->validate([
             'domain' => [
@@ -150,6 +120,7 @@ class CentralTenantController extends Controller
 
     public function verifyCustomDomain(Request $request, Tenant $tenant, Domain $domain, CustomDomainProvisioner $provisioner, CustomDomainVerifier $verifier, CentralAuditLogger $audit): RedirectResponse
     {
+        $this->ensureTenantConfigurationMutable($tenant);
         $this->ensureDomainBelongsToTenant($domain, $tenant);
         abort_unless($domain->type === 'custom', 409);
         $wasCpanelReady = $domain->cpanel_verified_at !== null;
@@ -190,6 +161,7 @@ class CentralTenantController extends Controller
 
     public function makePrimaryDomain(Request $request, Tenant $tenant, Domain $domain, CentralAuditLogger $audit): RedirectResponse
     {
+        $this->ensureTenantConfigurationMutable($tenant);
         $this->ensureDomainBelongsToTenant($domain, $tenant);
         abort_unless($domain->status === 'active', 409);
         DB::connection(config('tenancy.database.central_connection'))->transaction(function () use ($tenant, $domain): void {
@@ -203,6 +175,7 @@ class CentralTenantController extends Controller
 
     public function deleteCustomDomain(Request $request, Tenant $tenant, Domain $domain, CustomDomainDeprovisioner $deprovisioner, CentralAuditLogger $audit): RedirectResponse
     {
+        $this->ensureTenantConfigurationMutable($tenant);
         $this->ensureDomainBelongsToTenant($domain, $tenant);
         abort_unless($domain->type === 'custom', 409);
         abort_if($domain->is_primary, 409, 'Make another active domain primary before removing this custom domain.');
@@ -223,43 +196,29 @@ class CentralTenantController extends Controller
         return back()->with('status', "Custom domain {$domainName} was removed.");
     }
 
-    public function retry(Request $request, Tenant $tenant, ProvisionTenant $provision, CentralAuditLogger $audit): RedirectResponse
+    private function ensureTenantConfigurationMutable(Tenant $tenant): void
     {
-        abort_unless($tenant->provisioning_status === 'failed', 409);
-        $request->merge(['admin_email' => strtolower(trim((string) $request->input('admin_email')))]);
-        $validated = $request->validate([
-            'admin_name' => ['required', 'string', 'max:120'],
-            'admin_email' => ['required', 'email', 'max:255'],
-            'admin_password' => ['required', 'string', Password::default(), 'confirmed'],
-        ]);
+        abort_unless(
+            $tenant->provisioning_status === 'active' && in_array($tenant->status, ['active', 'suspended'], true),
+            409,
+            'Tenant configuration is unavailable while provisioning, failed, or being deleted.',
+        );
 
-        try {
-            $provision->handle((string) $tenant->getTenantKey(), (string) ($tenant->name ?: $tenant->getTenantKey()), $validated['admin_name'], $validated['admin_email'], $validated['admin_password']);
-        } catch (Throwable $e) {
-            report($e);
-            $audit->log('tenant.provisioning_retry_failed', 'Tenant provisioning retry failed.', tenantId: (string) $tenant->getTenantKey(), context: ['error' => $e->getMessage()], request: $request);
-
-            return back()->withErrors(['provisioning' => $e->getMessage()]);
-        }
-
-        $audit->log('tenant.provisioning_retried', 'Tenant provisioning retry completed successfully.', tenantId: (string) $tenant->getTenantKey(), request: $request);
-
-        return redirect()->route('central.tenants.show', $tenant)->with('status', 'Tenant provisioning completed.');
+        $this->ensureNoUnresolvedDeletion($tenant);
     }
 
-    private function provisioningMessage(string $status): string
+    private function ensureNoUnresolvedDeletion(Tenant $tenant): void
     {
-        return match ($status) {
-            'pending' => 'Reserving tenant identity…',
-            'domain' => 'Provisioning permanent platform hostname…',
-            'database' => 'Creating isolated tenant database…',
-            'migrating' => 'Preparing the tenant database…',
-            'administrator' => 'Creating the initial tenant administrator…',
-            'https_pending' => 'Waiting for cPanel to issue a trusted HTTPS certificate…',
-            'active' => 'Tenant is ready.',
-            'failed' => 'Provisioning failed.',
-            default => 'Provisioning is in progress…',
-        };
+        $latestDeletion = TenantDeletionRecord::query()
+            ->where('tenant_id', (string) $tenant->getTenantKey())
+            ->latest('id')
+            ->first();
+
+        abort_if(
+            $latestDeletion instanceof TenantDeletionRecord && $latestDeletion->isUnresolved(),
+            409,
+            'Tenant configuration is unavailable while deletion cleanup is unresolved.',
+        );
     }
 
     private function ensureDomainBelongsToTenant(Domain $domain, Tenant $tenant): void
