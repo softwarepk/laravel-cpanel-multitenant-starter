@@ -91,10 +91,16 @@
             });
             const data = await response.json();
             currentStage = data.provisioning_status || null;
-            showStage(data);
             redirectUrl = data.redirect || redirectUrl;
 
-            if (currentStage === 'active' && redirectUrl) return finishAndRedirect(redirectUrl);
+            if (!storeFinished && (currentStage === 'active' || currentStage === 'failed')) {
+                currentStage = 'starting';
+                showStage({provisioning_status:'starting', message:messages.starting});
+            } else {
+                showStage(data);
+            }
+
+            if (currentStage === 'active' && redirectUrl && storeFinished) return finishAndRedirect(redirectUrl);
             if (currentStage === 'https_pending' && storeFinished) await checkHttps();
         } catch (_) {
             // A transient polling failure must not interrupt the provisioning request.
