@@ -26,7 +26,8 @@ afterEach(function (): void {
 
 it('redirects an uninstalled production deployment to the web installer', function (): void {
     $response = $this
-        ->withServerVariables(['HTTPS' => 'on', 'HTTP_HOST' => 'central.test'])
+        ->withHeader('Host', 'central.test')
+        ->withServerVariables(['HTTPS' => 'on'])
         ->get('/');
 
     $response->assertRedirect('/install');
@@ -34,7 +35,8 @@ it('redirects an uninstalled production deployment to the web installer', functi
 
 it('serves the installer without the normal web session middleware', function (): void {
     $response = $this
-        ->withServerVariables(['HTTPS' => 'on', 'HTTP_HOST' => 'central.test', 'DOCUMENT_ROOT' => public_path()])
+        ->withHeader('Host', 'central.test')
+        ->withServerVariables(['HTTPS' => 'on', 'DOCUMENT_ROOT' => public_path()])
         ->get('/install');
 
     $response
@@ -48,7 +50,8 @@ it('treats an existing production app key as an already configured legacy deploy
     config(['app.key' => 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=']);
 
     $response = $this
-        ->withServerVariables(['HTTPS' => 'on', 'HTTP_HOST' => 'central.test'])
+        ->withHeader('Host', 'central.test')
+        ->withServerVariables(['HTTPS' => 'on'])
         ->get('/install');
 
     $response->assertRedirect('/central/login');
@@ -56,22 +59,22 @@ it('treats an existing production app key as an already configured legacy deploy
 
 it('keeps a pending installation recoverable even after an app key has been written', function (): void {
     config(['app.key' => 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=']);
-    File::put((string) config('installer.pending_file'), '{}');
+    File::put(config('installer.pending_file'), 'pending');
 
     $response = $this
-        ->withServerVariables(['HTTPS' => 'on', 'HTTP_HOST' => 'central.test', 'DOCUMENT_ROOT' => public_path()])
+        ->withHeader('Host', 'central.test')
+        ->withServerVariables(['HTTPS' => 'on', 'DOCUMENT_ROOT' => public_path()])
         ->get('/install');
 
-    $response
-        ->assertOk()
-        ->assertSee('Resuming an incomplete installation.');
+    $response->assertOk()->assertSee('First-run deployment');
 });
 
 it('locks the installer when the completion marker exists', function (): void {
-    File::put((string) config('installer.complete_file'), '{}');
+    File::put(config('installer.complete_file'), 'complete');
 
     $response = $this
-        ->withServerVariables(['HTTPS' => 'on', 'HTTP_HOST' => 'central.test'])
+        ->withHeader('Host', 'central.test')
+        ->withServerVariables(['HTTPS' => 'on'])
         ->get('/install');
 
     $response->assertRedirect('/central/login');
