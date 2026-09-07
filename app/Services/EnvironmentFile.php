@@ -35,6 +35,29 @@ class EnvironmentFile
         @chmod($path, 0600);
     }
 
+    public function hasConfiguredApplicationKey(): bool
+    {
+        $path = base_path('.env');
+        if (! is_file($path)) {
+            return false;
+        }
+
+        $contents = file_get_contents($path);
+        if ($contents === false) {
+            return false;
+        }
+
+        foreach (preg_split('/\R/', $contents) ?: [] as $line) {
+            if (! preg_match('/^APP_KEY=(.*)$/', trim($line), $matches)) {
+                continue;
+            }
+
+            return trim($this->decodeValue($matches[1])) !== '';
+        }
+
+        return false;
+    }
+
     /** @return array<string, string> */
     public function existingNonSecretValues(): array
     {
