@@ -74,7 +74,7 @@ class DeleteTenant
 
         $database = (string) ($history->database_name ?? '');
         $platform = $history->platform_domain;
-        $custom = $history->custom_domains ?? [];
+        $custom = $this->customDomainsFromHistory($history);
         $storagePath = $this->tenantStoragePath($tenantId);
         /** @var array<string, array{status:string,target:string|null,error?:string}> $results */
         $results = (array) $history->cleanup_results;
@@ -172,6 +172,24 @@ class DeleteTenant
     private function recordProgress(TenantDeletionRecord $history, array $results): void
     {
         $history->update(['cleanup_results' => $results]);
+    }
+
+    /** @return list<string> */
+    private function customDomainsFromHistory(TenantDeletionRecord $history): array
+    {
+        $value = $history->getAttribute('custom_domains');
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $domains = [];
+        foreach ($value as $domain) {
+            if (is_string($domain) && $domain !== '') {
+                $domains[] = $domain;
+            }
+        }
+
+        return $domains;
     }
 
     /** @return array{status:string,target:string|null,error?:string} */
