@@ -28,12 +28,42 @@ On final submission the installer verifies that the cPanel API token manages the
 
 The installer intentionally does not require normal Laravel sessions or CSRF state because neither may exist yet. It requires HTTPS and successful cPanel-account proof before it writes deployment secrets or configuration. Wizard navigation remains client-side so intermediate secrets do not need to be persisted before an application key/session exists.
 
-Run the frontend build either before or immediately after the installer. The installer itself is self-contained and does not depend on Vite assets:
+## Frontend assets are required
+
+The installer UI is self-contained and does not depend on Vite assets, but the installed Control Center and tenant application do. A completed installation is therefore not usable until Laravel can find the generated Vite manifest and assets under:
+
+```text
+public/build/manifest.json
+public/build/assets/
+```
+
+If those files are missing, pages that use `@vite(...)` will fail with a server error such as `ViteManifestNotFoundException` even though database/application installation itself completed successfully.
+
+The current deployment model allows either of these approaches:
+
+### Build on the cPanel host
+
+Run the frontend build before opening the installed Control Center, either before or immediately after the web installer:
 
 ```bash
 npm ci
 npm run build
 ```
+
+On constrained shared hosting, use the hosting provider's supported Node.js runtime and any resource limits required by that account.
+
+### Build elsewhere and deploy the generated assets
+
+Node.js is not required by Laravel at runtime once the Vite output has been generated. The frontend may instead be built on a developer machine, CI/release system, or another build host:
+
+```bash
+npm ci
+npm run build
+```
+
+Then deploy the resulting `public/build/` directory together with the application. This can avoid requiring Node/npm and frontend-build CPU/memory on cPanel.
+
+For now the starter does not prescribe one of these two approaches and does not automatically build or verify the Vite bundle during installation. Whichever deployment method is used, treat the presence of `public/build/manifest.json` as a required deployment prerequisite before the Control Center is considered ready for use.
 
 ## Queue worker
 
@@ -53,11 +83,11 @@ cPanel Cron management currently has no UAPI equivalent and therefore uses isola
 
 For a VPS or host with a supervised process manager, a persistent Laravel `queue:work` process is also valid and should be restarted after deployments.
 
-After installation and queue-worker setup, continue at `/central/login` and provision a disposable tenant to validate real cPanel subdomain, database, queue, HTTPS and isolation behavior.
+After installation, frontend asset preparation, and queue-worker setup, continue at `/central/login` and provision a disposable tenant to validate real cPanel subdomain, database, queue, HTTPS and isolation behavior.
 
 ## Application updates
 
-A normal application update runs both central and tenant migrations:
+A normal application update runs both central and tenant migrations and rebuilds/deploys the frontend assets:
 
 ```bash
 git pull --ff-only
@@ -68,6 +98,8 @@ npm ci
 npm run build
 php artisan optimize
 ```
+
+If frontend assets are built outside cPanel, replace the `npm ci` / `npm run build` step above with deployment of the freshly generated `public/build/` output.
 
 The central database contains control-plane metadata. Each tenant database contains that tenant's users and project business data. Back up both the central database and all tenant databases/storage roots.
 
