@@ -25,6 +25,7 @@ class DeleteTenantJob implements ShouldQueue
         public readonly string $tenantId,
         public readonly int $deletionRecordId,
         public readonly ?int $centralAdminId,
+        public readonly string $restoreStatus = 'suspended',
     ) {}
 
     public function handle(DeleteTenant $deleteTenant): void
@@ -55,7 +56,10 @@ class DeleteTenantJob implements ShouldQueue
 
         $tenant = Tenant::query()->find($this->tenantId);
         if ($tenant instanceof Tenant && $tenant->status === 'deleting') {
-            $tenant->update(['status' => 'suspended']);
+            $restoreStatus = in_array($this->restoreStatus, ['suspended', 'failed'], true)
+                ? $this->restoreStatus
+                : ($tenant->provisioning_status === 'failed' ? 'failed' : 'suspended');
+            $tenant->update(['status' => $restoreStatus]);
         }
 
         app(CentralAuditLogger::class)->log(
