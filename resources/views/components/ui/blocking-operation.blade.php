@@ -33,16 +33,9 @@
                 if (window.ControlCenterOperation) return;
 
                 let appShell = null;
-                let beforeUnloadHandler = null;
 
                 const overlayFor = (id) => document.getElementById(id);
                 const clampProgress = (value) => Math.max(0, Math.min(100, Number(value) || 0));
-
-                const removeNavigationWarning = () => {
-                    if (!beforeUnloadHandler) return;
-                    window.removeEventListener('beforeunload', beforeUnloadHandler);
-                    beforeUnloadHandler = null;
-                };
 
                 const update = (id, data = {}) => {
                     const overlay = overlayFor(id);
@@ -75,17 +68,7 @@
                     overlay.classList.remove('hidden');
                     overlay.setAttribute('aria-hidden', 'false');
                     update(id, data);
-
-                    beforeUnloadHandler ??= (event) => {
-                        event.preventDefault();
-                        event.returnValue = '';
-                    };
-                    window.addEventListener('beforeunload', beforeUnloadHandler);
                     window.setTimeout(() => overlay.focus(), 0);
-                };
-
-                const allowNavigation = () => {
-                    removeNavigationWarning();
                 };
 
                 const end = (id) => {
@@ -98,10 +81,9 @@
                     if (appShell) appShell.inert = false;
                     document.body.classList.remove('overflow-hidden');
                     appShell = null;
-                    removeNavigationWarning();
                 };
 
-                window.ControlCenterOperation = { begin, update, allowNavigation, end };
+                window.ControlCenterOperation = { begin, update, end };
             })();
         </script>
     @endpush
