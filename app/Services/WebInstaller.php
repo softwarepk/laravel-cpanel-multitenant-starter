@@ -13,20 +13,19 @@ class WebInstaller
     public function __construct(
         private readonly EnvironmentFile $environment,
         private readonly InstallationState $state,
+        private readonly QueueCronInstaller $queueCron,
     ) {}
 
-    /** @param array<string, mixed> $data @return array{central_domain:string,central_database:string,tenant_database_user:string} */
+    /**
+     * @param array<string, mixed> $data
+     * @return array{central_domain:string,central_database:string,tenant_database_user:string,queue:array{configured:bool,status:string,schedule:string,command:string|null,message:string}}
+     */
     public function install(array $data, string $requestHost): array
     {
         $wasPending = $this->state->isPending();
         $this->state->begin();
 
-        $cpanel = new InstallerCpanelClient(
-            (string) $data['cpanel_host'],
-            (int) $data['cpanel_port'],
-            (string) $data['cpanel_user'],
-            (string) $data['cpanel_token'],
-        );
+        $cpanel = $this->cpanelClient($data);
 
         $this->verifyHostedDomain($cpanel, $requestHost, (string) $data['document_root']);
         $this->verifyPlatformDomain($cpanel, (string) $data['platform_domain']);
@@ -88,6 +87,8 @@ class WebInstaller
             ],
         );
 
+        $queueResult = $this->queueCron->configure($cpanel);
+
         // Keep this request on non-database stores until the fresh schema exists
         // and the installer has fully completed. The .env already contains the
         // desired production stores for the next request.
@@ -107,13 +108,36 @@ class WebInstaller
         $this->state->complete([
             'central_domain' => (string) $data['central_domain'],
             'central_database' => (string) $data['central_db_name'],
+            'queue_status' => $queueResult['status'],
         ]);
 
         return [
             'central_domain' => (string) $data['central_domain'],
             'central_database' => (string) $data['central_db_name'],
             'tenant_database_user' => (string) $data['tenant_db_user'],
+            'queue' => $queueResult,
         ];
+    }
+
+    /** @param array<string, mixed> $data @return array{database_host:string} */
+    public function verifyCpanelConfiguration(array $data, string $requestHost): array
+    {
+        $cpanel = $this->cpanelClient($data);
+        $this->verifyHostedDomain($cpanel, $requestHost, (string) $data['document_root']);
+        $this->verifyPlatformDomain($cpanel, (string) $data['platform_domain']);
+
+        return ['database_host' => $cpanel->databaseHost()];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function cpanelClient(array $data): InstallerCpanelClient
+    {
+        return new InstallerCpanelClient(
+            (string) $data['cpanel_host'],
+            (int) $data['cpanel_port'],
+            (string) $data['cpanel_user'],
+            (string) $data['cpanel_token'],
+        );
     }
 
     /** @param array<string, mixed> $data */
@@ -248,6 +272,7 @@ class WebInstaller
             'SESSION_SECURE_COOKIE' => true,
             'CACHE_STORE' => 'database',
             'QUEUE_CONNECTION' => 'database',
+            'DB_QUEUE_RETRY_AFTER' => 900,
             'CENTRAL_DOMAINS' => (string) $data['central_domain'],
             'TENANT_PLATFORM_DOMAIN' => (string) $data['platform_domain'],
             'TENANT_PLATFORM_DOCUMENT_ROOT' => (string) $data['document_root'],
