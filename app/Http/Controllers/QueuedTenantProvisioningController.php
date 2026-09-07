@@ -10,7 +10,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Throwable;
 
@@ -148,7 +147,7 @@ class QueuedTenantProvisioningController extends Controller
             'administrator' => 'Creating the initial tenant administrator…',
             'https_pending' => 'Waiting for cPanel to issue a trusted HTTPS certificate…',
             'active' => 'Tenant is ready.',
-            'failed' => 'Provisioning failed: '.Str::limit((string) ($tenantError ?? ''), 0),
+            'failed' => 'Provisioning failed.',
             default => 'Provisioning is in progress…',
         };
     }
