@@ -18,28 +18,34 @@ use Throwable;
 
 class QueuedTenantDeletionController extends Controller
 {
-    private const int STALE_DELETION_MINUTES = 10;
+    private const int STALE_DELETION_MINUTES = 20;
 
     public function destroy(Request $request, Tenant $tenant, DeleteTenant $deleteTenant, CentralAuditLogger $audit): JsonResponse|RedirectResponse
     {
-        abort_unless(in_array($tenant->status, ['suspended', 'failed'], true), 409, 'Suspend an active tenant before deleting it. Tenants with failed provisioning may be deleted directly.');
         $tenantId = (string) $tenant->getTenantKey();
-        $restoreStatus = (string) $tenant->status;
-
         $latestDeletion = TenantDeletionRecord::query()
             ->where('tenant_id', $tenantId)
             ->latest('id')
             ->first();
 
-        if ($latestDeletion instanceof TenantDeletionRecord
-            && (string) $latestDeletion->status === 'started'
-            && ! $this->deletionIsStale($latestDeletion)) {
-            $message = 'Permanent deletion is already in progress for this tenant.';
+        if ($latestDeletion instanceof TenantDeletionRecord && (string) $latestDeletion->status === 'started') {
+            if (! $this->deletionIsStale($latestDeletion)) {
+                $message = 'Permanent deletion is already in progress for this tenant.';
 
-            return $request->expectsJson()
-                ? response()->json(['message' => $message, 'errors' => ['deletion' => [$message]]], 409)
-                : back()->withErrors(['deletion' => $message]);
+                return $request->expectsJson()
+                    ? response()->json(['message' => $message, 'errors' => ['deletion' => [$message]]], 409)
+                    : back()->withErrors(['deletion' => $message]);
+            }
+
+            $latestDeletion->update(['status' => 'failed', 'completed_at' => now()]);
+            if ($tenant->status === 'deleting') {
+                $tenant->update(['status' => $this->restoreStatusFor($tenant)]);
+                $tenant->refresh();
+            }
         }
+
+        abort_unless(in_array($tenant->status, ['suspended', 'failed'], true), 409, 'Suspend an active tenant before deleting it. Tenants with failed provisioning may be deleted directly.');
+        $restoreStatus = (string) $tenant->status;
 
         $validated = $request->validate([
             'tenant_id_confirmation' => ['required', 'string'],
