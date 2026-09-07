@@ -15,7 +15,10 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION', env('DB_CONNECTION', 'sqlite')),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            // Tenant provisioning/deletion may spend up to several minutes in
+            // cPanel and database operations. Keep retry_after comfortably above
+            // the job timeout so another worker cannot pick up the same job.
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 900),
             'after_commit' => true,
         ],
     ],

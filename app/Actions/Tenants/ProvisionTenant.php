@@ -30,14 +30,10 @@ class ProvisionTenant
         private readonly TenantDatabaseNamer $databaseNames,
     ) {}
 
-    public function handle(string $tenantId, string $name, string $adminName, string $adminEmail, string $adminPassword): Tenant
+    public function reserve(string $tenantId, string $name, string $adminEmail): Tenant
     {
         $tenantId = strtolower(trim($tenantId));
-        validator(['password' => $adminPassword], ['password' => ['required', 'string', Password::default()]])->validate();
-
         $platformDomain = $this->platformDomainFor($tenantId);
-        $rootDomain = $this->platformRootDomain();
-        $documentRoot = $this->platformDocumentRoot();
 
         if (Domain::query()->where('domain', $platformDomain)->where('tenant_id', '!=', $tenantId)->exists()) {
             throw new InvalidArgumentException("Platform domain [{$platformDomain}] is already assigned to another tenant.");
@@ -46,36 +42,66 @@ class ProvisionTenant
         $tenant = Tenant::query()->find($tenantId);
         $databaseName = $this->databaseNameFor($tenant, $tenantId);
 
-        if (! $tenant instanceof Tenant && TenantDeletionRecord::query()
-            ->where(fn ($query) => $query->where('tenant_id', $tenantId)->orWhere('database_name', $databaseName))
-            ->exists()) {
-            throw new InvalidArgumentException('This tenant identity was used previously and is retained in deletion history. Choose a new tenant ID rather than reusing deleted tenant infrastructure.');
+        if ($tenant instanceof Tenant) {
+            return $tenant;
         }
+
+        $latestDeletion = TenantDeletionRecord::query()
+            ->where(fn ($query) => $query->where('tenant_id', $tenantId)->orWhere('database_name', $databaseName))
+            ->latest('id')
+            ->first();
+
+        if ($latestDeletion instanceof TenantDeletionRecord && $latestDeletion->blocksIdentityReuse()) {
+            throw new InvalidArgumentException('This tenant identity has unresolved or incomplete deletion cleanup. Review the latest deletion history before reusing this tenant ID.');
+        }
+
+        if (Tenant::query()->where('database_name', $databaseName)->exists()) {
+            throw new RuntimeException("Tenant database [{$databaseName}] is already assigned to another tenant.");
+        }
+
+        $tenant = Tenant::withoutEvents(fn (): Tenant => Tenant::create([
+            'id' => $tenantId,
+            'name' => $name,
+            'status' => 'provisioning',
+            'provisioning_status' => 'pending',
+            'database_name' => $databaseName,
+            'initial_admin_email' => $adminEmail,
+        ]));
+        $tenant->setInternal('db_name', $databaseName);
+        $tenant->save();
+
+        $tenant->domains()->create([
+            'domain' => $platformDomain,
+            'type' => 'platform',
+            'status' => 'pending',
+            'is_primary' => true,
+        ]);
+
+        return $tenant->refresh();
+    }
+
+    public function handle(string $tenantId, string $name, string $adminName, string $adminEmail, string $adminPassword): Tenant
+    {
+        $tenantId = strtolower(trim($tenantId));
+        validator(['password' => $adminPassword], ['password' => ['required', 'string', Password::default()]])->validate();
+
+        $platformDomain = $this->platformDomainFor($tenantId);
+        $rootDomain = $this->platformRootDomain();
+        $documentRoot = $this->platformDocumentRoot();
+        $tenant = $this->reserve($tenantId, $name, $adminEmail);
+        $databaseName = $this->databaseNameFor($tenant, $tenantId);
 
         if (Tenant::query()->where('database_name', $databaseName)->whereKeyNot($tenantId)->exists()) {
             throw new RuntimeException("Tenant database [{$databaseName}] is already assigned to another tenant.");
         }
 
-        if (! $tenant instanceof Tenant) {
-            $tenant = Tenant::withoutEvents(fn (): Tenant => Tenant::create([
-                'id' => $tenantId,
-                'name' => $name,
-                'status' => 'provisioning',
-                'provisioning_status' => 'pending',
-                'database_name' => $databaseName,
-                'initial_admin_email' => $adminEmail,
-            ]));
-            $tenant->setInternal('db_name', $databaseName);
-            $tenant->save();
-        } else {
-            $tenant->update([
-                'name' => $name,
-                'status' => 'provisioning',
-                'provisioning_status' => 'pending',
-                'initial_admin_email' => $adminEmail,
-                'provisioning_error' => null,
-            ]);
-        }
+        $tenant->update([
+            'name' => $name,
+            'status' => 'provisioning',
+            'provisioning_status' => 'pending',
+            'initial_admin_email' => $adminEmail,
+            'provisioning_error' => null,
+        ]);
 
         $platform = $tenant->domains()->where('type', 'platform')->first();
 
