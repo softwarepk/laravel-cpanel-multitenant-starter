@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\InstallationDiscovery;
 use App\Services\InstallationState;
+use App\Services\QueueCronInstaller;
 use App\Services\WebInstaller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -18,6 +19,7 @@ class InstallationController extends Controller
         private readonly InstallationDiscovery $discovery,
         private readonly InstallationState $state,
         private readonly WebInstaller $installer,
+        private readonly QueueCronInstaller $queueCron,
     ) {}
 
     public function create(Request $request): Response
@@ -27,6 +29,57 @@ class InstallationController extends Controller
         }
 
         return $this->render($request);
+    }
+
+    public function checkCpanel(Request $request): Response
+    {
+        if (! $this->state->requiresInstallation()) {
+            return response()->json(['message' => 'This deployment is already installed.'], 409);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'central_domain' => ['required', 'string', 'max:253', 'regex:/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/'],
+            'platform_domain' => ['required', 'string', 'max:253', 'regex:/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/'],
+            'document_root' => ['required', 'string', 'max:500'],
+            'cpanel_host' => ['required', 'string', 'max:253', 'regex:/^[A-Za-z0-9.-]+$/'],
+            'cpanel_port' => ['required', 'integer', 'in:2083'],
+            'cpanel_user' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9_]+$/'],
+            'cpanel_token' => ['required', 'string', 'min:20', 'max:1024'],
+        ]);
+
+        $validator->after(function ($validator) use ($request): void {
+            $host = strtolower($request->getHost());
+            if (strtolower((string) $request->input('central_domain')) !== $host) {
+                $validator->errors()->add('central_domain', 'The central domain must match the hostname currently serving this installer.');
+            }
+
+            if ($this->normalizedPath((string) $request->input('document_root')) !== $this->normalizedPath(public_path())) {
+                $validator->errors()->add('document_root', 'The document root must be this deployment\'s Laravel public directory.');
+            }
+        });
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Review the cPanel connection fields and try again.',
+                'errors' => $validator->errors()->toArray(),
+            ], 422);
+        }
+
+        try {
+            $result = $this->installer->verifyCpanelConfiguration($validator->validated(), strtolower($request->getHost()));
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'cPanel connection verified. The account manages this installer hostname and tenant platform root.',
+            'database_host' => $result['database_host'],
+        ]);
     }
 
     public function store(Request $request): Response
@@ -105,6 +158,7 @@ class InstallationController extends Controller
             'centralDomain' => $result['central_domain'],
             'centralDatabase' => $result['central_database'],
             'tenantDatabaseUser' => $result['tenant_database_user'],
+            'queue' => $result['queue'],
         ]);
     }
 
@@ -113,14 +167,47 @@ class InstallationController extends Controller
     {
         $discovery = $this->discovery->discover($request);
         $values = array_replace($discovery['defaults'], $this->submittedNonSecretValues($request));
+        $checksReady = count(array_filter($discovery['checks'], static fn (array $check): bool => ! $check['ok'])) === 0;
 
         return response()->view('install.index', [
             'values' => $values,
             'checks' => $discovery['checks'],
+            'checksReady' => $checksReady,
+            'queuePlan' => $this->queueCron->plan(),
             'errors' => $errors,
             'globalError' => $globalError,
             'pending' => $this->state->isPending(),
+            'initialStep' => $this->initialStep($errors, $globalError),
         ], $status);
+    }
+
+    /** @param array<string, list<string>> $errors */
+    private function initialStep(array $errors, ?string $globalError): int
+    {
+        if ($globalError !== null) {
+            return 7;
+        }
+
+        $keys = array_keys($errors);
+        foreach ($keys as $key) {
+            if (in_array($key, ['app_name', 'app_url', 'central_domain', 'platform_domain', 'document_root', 'custom_domain_dns_target'], true)) {
+                return 2;
+            }
+            if (str_starts_with($key, 'cpanel_')) {
+                return 3;
+            }
+            if (str_starts_with($key, 'db_') || str_starts_with($key, 'central_db_') || str_starts_with($key, 'tenant_db_')) {
+                return 4;
+            }
+            if (in_array($key, ['admin_name', 'admin_email', 'admin_password', 'registration', 'verification'], true)) {
+                return 6;
+            }
+            if ($key === 'confirm_install') {
+                return 7;
+            }
+        }
+
+        return 1;
     }
 
     /** @return array<string, string|int|bool> */
