@@ -146,11 +146,7 @@
                     <p class="mt-2 text-sm text-zinc-500">Lifecycle actions become available after provisioning reaches an operational state.</p>
                 @elseif($tenant->status === 'active')
                     <p class="mt-2 text-sm text-zinc-500">Suspension immediately blocks tenant hosts without deleting data.</p>
-                    <form id="tenant-suspend-form" method="POST" action="{{ route('central.tenants.suspend', $tenant) }}" class="mt-4">
-                        @csrf
-                        <input type="hidden" name="confirmed" value="0">
-                        <button class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">Suspend tenant</button>
-                    </form>
+                    <x-central.tenant-suspend-confirmation :tenant="$tenant" />
                 @elseif($tenant->status === 'suspended')
                     <p class="mt-2 text-sm text-zinc-500">The tenant is blocked. It can be reactivated, or permanently deleted after explicit confirmation.</p>
 
@@ -168,19 +164,6 @@
         </aside>
     </div>
 </div>
-
-@if($tenant->status === 'active' && $tenant->provisioning_status === 'active')
-    <div id="tenant-suspend-confirmation" class="fixed inset-0 z-50 hidden items-center justify-center bg-zinc-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="tenant-suspend-confirmation-title" aria-hidden="true">
-        <div class="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
-            <div id="tenant-suspend-confirmation-title" class="text-lg font-semibold">Suspend this tenant?</div>
-            <p class="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">Users will immediately lose access to the tenant, but no tenant data will be deleted. You can reactivate the tenant later.</p>
-            <div class="mt-6 flex flex-wrap justify-end gap-3">
-                <button id="tenant-suspend-cancel" type="button" class="rounded-xl border border-zinc-300 px-4 py-2 text-sm font-semibold dark:border-zinc-700">Cancel</button>
-                <button id="tenant-suspend-confirm" type="button" class="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white">Yes, suspend tenant</button>
-            </div>
-        </div>
-    </div>
-@endif
 @endsection
 
 @push('scripts')
@@ -193,54 +176,6 @@
     const httpsCheckUrl = @json(route('central.tenants.https.check', $tenant));
     const provisioningProgress = {starting:5,pending:10,domain:24,database:40,migrating:58,administrator:72,https_pending:88,active:100,failed:100};
     let provisioningTimer = null;
-
-    const suspendForm = document.getElementById('tenant-suspend-form');
-    const suspendConfirmation = document.getElementById('tenant-suspend-confirmation');
-    const suspendCancel = document.getElementById('tenant-suspend-cancel');
-    const suspendConfirm = document.getElementById('tenant-suspend-confirm');
-    let suspendPreviouslyFocused = null;
-
-    const closeSuspendConfirmation = () => {
-        if (!suspendConfirmation) return;
-        suspendConfirmation.classList.add('hidden');
-        suspendConfirmation.classList.remove('flex');
-        suspendConfirmation.setAttribute('aria-hidden', 'true');
-        if (suspendPreviouslyFocused instanceof HTMLElement) suspendPreviouslyFocused.focus();
-    };
-
-    const openSuspendConfirmation = () => {
-        if (!suspendConfirmation) return;
-        suspendPreviouslyFocused = document.activeElement;
-        suspendConfirmation.classList.remove('hidden');
-        suspendConfirmation.classList.add('flex');
-        suspendConfirmation.setAttribute('aria-hidden', 'false');
-        suspendConfirm?.focus();
-    };
-
-    if (suspendForm && suspendConfirmation) {
-        suspendForm.addEventListener('submit', (event) => {
-            const confirmed = suspendForm.querySelector('input[name="confirmed"]');
-            if (confirmed?.value === '1') return;
-
-            event.preventDefault();
-            openSuspendConfirmation();
-        });
-
-        suspendCancel?.addEventListener('click', closeSuspendConfirmation);
-        suspendConfirm?.addEventListener('click', () => {
-            const confirmed = suspendForm.querySelector('input[name="confirmed"]');
-            if (confirmed) confirmed.value = '1';
-            HTMLFormElement.prototype.submit.call(suspendForm);
-        });
-        suspendConfirmation.addEventListener('click', (event) => {
-            if (event.target === suspendConfirmation) closeSuspendConfirmation();
-        });
-        document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && suspendConfirmation.getAttribute('aria-hidden') === 'false') {
-                closeSuspendConfirmation();
-            }
-        });
-    }
 
     const showProvisioning = (data = {}) => {
         const stage = data.provisioning_status || 'starting';
