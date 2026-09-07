@@ -7,12 +7,127 @@
 @if($tenant->provisioning_status === 'failed')<div class="mb-6 rounded-2xl border border-red-200 bg-red-50 p-5 dark:border-red-900 dark:bg-red-950/30"><div class="font-semibold">Provisioning failed</div><p class="mt-1 text-sm text-red-700 dark:text-red-300">{{ $tenant->provisioning_error }}</p><form method="POST" action="{{ route('central.tenants.retry',$tenant) }}" class="mt-5 grid gap-3 sm:grid-cols-2">@csrf<input name="admin_name" placeholder="Administrator name" required class="rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"><input name="admin_email" type="email" value="{{ $tenant->initial_admin_email }}" placeholder="Administrator email" required class="rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"><input name="admin_password" type="password" placeholder="Temporary password" required class="rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"><input name="admin_password_confirmation" type="password" placeholder="Confirm password" required class="rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"><div class="sm:col-span-2"><button class="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white">Retry provisioning</button></div></form></div>@endif
 @if($unresolvedDeletion)<div class="mb-6 rounded-2xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/30"><div class="font-semibold text-amber-900 dark:text-amber-200">Deletion cleanup is unresolved</div><p class="mt-1 text-sm leading-6 text-amber-800 dark:text-amber-300">A previous permanent-deletion attempt did not finish cleanly. Reactivation is blocked because infrastructure may already have been partially removed. Retry permanent deletion or review deletion record #{{ $unresolvedDeletion->id }} in Central Activity before restoring this tenant.</p></div>@endif
 
+<x-ui.blocking-operation id="tenant-delete-progress" eyebrow="Permanent deletion" title="Deleting tenant" message="Preparing permanent deletion…" />
+
 <div class="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,.75fr)]">
 <div class="space-y-6">
 <section class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60"><h2 class="font-semibold">Domains</h2><p class="mt-1 text-sm text-zinc-500">The platform hostname is permanent. Verified custom domains can become primary aliases. Custom domains created here can also be removed from cPanel from this page.</p><div class="mt-5 space-y-3">@foreach($tenant->domains as $domain)<div class="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between"><div><div class="flex flex-wrap items-center gap-2"><span class="font-medium">{{ $domain->domain }}</span>@if($domain->is_primary)<span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">Primary</span>@endif<x-ui.status-badge :status="$domain->status" /></div><div class="mt-1 text-xs text-zinc-500">{{ ucfirst($domain->type) }} · DNS {{ $domain->dns_verified_at ? 'verified' : 'pending' }} · cPanel {{ $domain->cpanel_verified_at ? 'verified' : 'pending' }} · SSL {{ $domain->ssl_verified_at ? 'verified' : 'pending' }}</div>@if($domain->verification_error)<div class="mt-1 text-xs text-red-600">{{ $domain->verification_error }}</div>@endif</div><div class="flex flex-wrap gap-2">@if($domain->type === 'custom' && $domain->status !== 'active')<form method="POST" action="{{ route('central.tenants.domains.verify',[$tenant,$domain]) }}">@csrf<button class="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold dark:border-zinc-700">Verify</button></form>@endif @if($domain->status === 'active' && !$domain->is_primary)<form method="POST" action="{{ route('central.tenants.domains.primary',[$tenant,$domain]) }}">@csrf<button class="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold dark:border-zinc-700">Make primary</button></form>@endif @if($domain->type === 'custom' && !$domain->is_primary)<form method="POST" action="{{ route('central.tenants.domains.destroy',[$tenant,$domain]) }}">@csrf @method('DELETE')<button class="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 dark:border-red-900">Remove</button></form>@endif</div></div>@endforeach</div><form method="POST" action="{{ route('central.tenants.domains.store',$tenant) }}" class="mt-5 flex flex-col gap-3 sm:flex-row">@csrf<input name="domain" placeholder="portal.customer.example" class="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950" required><button class="rounded-xl bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-zinc-950">Add custom domain</button></form><p class="mt-2 text-xs text-zinc-500">DNS target: {{ $customDomainDnsTarget ?: 'Not configured' }}</p></section>
 <section class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60"><div class="flex items-center justify-between"><div><h2 class="font-semibold">Recent tenant activity</h2><p class="mt-1 text-sm text-zinc-500">Control-plane operations affecting this tenant.</p></div></div><div class="mt-4 divide-y divide-zinc-100 dark:divide-zinc-800">@forelse($auditLogs as $log)<div class="py-3"><div class="text-sm font-medium">{{ $log->description ?: $log->action }}</div><div class="mt-1 text-xs text-zinc-500">{{ $log->centralAdmin?->name ?: 'System' }} · {{ $log->created_at?->format('Y-m-d H:i') }}</div></div>@empty<div class="py-8 text-sm text-zinc-500">No activity recorded.</div>@endforelse</div></section>
 </div>
 <aside class="space-y-6"><section class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60"><h2 class="font-semibold">Tenant details</h2><dl class="mt-4 space-y-3 text-sm"><div><dt class="text-xs text-zinc-500">Database</dt><dd class="mt-1 break-all font-mono">{{ $tenant->database_name ?: '—' }}</dd></div><div><dt class="text-xs text-zinc-500">Initial administrator</dt><dd class="mt-1">{{ $tenant->initial_admin_email ?: '—' }}</dd></div><div><dt class="text-xs text-zinc-500">Provisioned</dt><dd class="mt-1">{{ $tenant->provisioned_at?->format('Y-m-d H:i') ?: '—' }}</dd></div></dl></section>
-<section class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60"><h2 class="font-semibold">Lifecycle</h2>@if($tenant->status === 'active')<p class="mt-2 text-sm text-zinc-500">Suspension immediately blocks tenant hosts without deleting data.</p><form method="POST" action="{{ route('central.tenants.suspend',$tenant) }}" class="mt-4">@csrf<input type="hidden" name="confirmed" value="1"><button class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">Suspend tenant</button></form>@elseif($tenant->status === 'suspended')<p class="mt-2 text-sm text-zinc-500">The tenant is blocked. It can be reactivated, or permanently deleted after explicit confirmation.</p>@if($unresolvedDeletion)<p class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">Reactivation is disabled while deletion record #{{ $unresolvedDeletion->id }} remains unresolved.</p>@else<form method="POST" action="{{ route('central.tenants.activate',$tenant) }}" class="mt-4">@csrf<button class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Reactivate tenant</button></form>@endif<form method="POST" action="{{ route('central.tenants.destroy',$tenant) }}" class="mt-6 space-y-3 border-t border-zinc-200 pt-5 dark:border-zinc-800" autocomplete="off">@csrf @method('DELETE')<div class="text-sm font-semibold text-red-700">Permanent deletion</div><p class="text-xs leading-5 text-zinc-500">The application will attempt to remove the managed platform domain, custom domains, tenant storage, and tenant database. Infrastructure cleanup failures do not automatically prevent the central tenant record from being deleted; a durable cleanup history is retained under Central Activity for manual follow-up.</p><input name="tenant_id_confirmation" placeholder="Type tenant ID: {{ $tenant->id }}" autocomplete="off" required class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"><div><label for="deletion-current-password" class="mb-1.5 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Control Center administrator password</label><input id="deletion-current-password" name="current_password" type="password" placeholder="Enter your Control Center admin password" autocomplete="new-password" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" required class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"><p class="mt-1.5 text-xs leading-5 text-zinc-500">Enter the password for the Control Center administrator account you are currently signed in with. This must be entered manually to confirm permanent deletion.</p></div><button class="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white">Permanently delete</button></form>@else<p class="mt-2 text-sm text-zinc-500">Lifecycle actions become available after provisioning reaches an operational state.</p>@endif</section></aside>
+<section class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60"><h2 class="font-semibold">Lifecycle</h2>@if($tenant->status === 'active')<p class="mt-2 text-sm text-zinc-500">Suspension immediately blocks tenant hosts without deleting data.</p><form method="POST" action="{{ route('central.tenants.suspend',$tenant) }}" class="mt-4">@csrf<input type="hidden" name="confirmed" value="1"><button class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">Suspend tenant</button></form>@elseif($tenant->status === 'suspended')<p class="mt-2 text-sm text-zinc-500">The tenant is blocked. It can be reactivated, or permanently deleted after explicit confirmation.</p>@if($unresolvedDeletion)<p class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">Reactivation is disabled while deletion record #{{ $unresolvedDeletion->id }} remains unresolved.</p>@else<form method="POST" action="{{ route('central.tenants.activate',$tenant) }}" class="mt-4">@csrf<button class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Reactivate tenant</button></form>@endif<div id="deletion-errors" class="mt-4 hidden rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"></div><form id="tenant-delete-form" method="POST" action="{{ route('central.tenants.destroy',$tenant) }}" class="mt-6 space-y-3 border-t border-zinc-200 pt-5 dark:border-zinc-800" autocomplete="off">@csrf @method('DELETE')<div class="text-sm font-semibold text-red-700">Permanent deletion</div><p class="text-xs leading-5 text-zinc-500">The application will attempt to remove the managed platform domain, custom domains, tenant storage, and tenant database. Infrastructure cleanup failures do not automatically prevent the central tenant record from being deleted; a durable cleanup history is retained under Central Activity for manual follow-up.</p><input name="tenant_id_confirmation" placeholder="Type tenant ID: {{ $tenant->id }}" autocomplete="off" required class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"><div><label for="deletion-current-password" class="mb-1.5 block text-xs font-semibold text-zinc-700 dark:text-zinc-300">Control Center administrator password</label><input id="deletion-current-password" name="current_password" type="password" placeholder="Enter your Control Center admin password" autocomplete="new-password" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" required class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"><p class="mt-1.5 text-xs leading-5 text-zinc-500">Enter the password for the Control Center administrator account you are currently signed in with. This must be entered manually to confirm permanent deletion.</p></div><button class="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white">Permanently delete</button></form>@else<p class="mt-2 text-sm text-zinc-500">Lifecycle actions become available after provisioning reaches an operational state.</p>@endif</section></aside>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+(() => {
+    const form = document.getElementById('tenant-delete-form');
+    const overlayId = 'tenant-delete-progress';
+    const errors = document.getElementById('deletion-errors');
+    const tenantId = @json((string) $tenant->getTenantKey());
+    const statusUrl = @json(route('central.tenants.deletion.status', ['tenantId' => (string) $tenant->getTenantKey()]));
+    const resumeDeletion = @json($unresolvedDeletion?->status === 'started');
+
+    let busy = false;
+    let pollTimer = null;
+
+    const showProgress = (data = {}) => {
+        window.ControlCenterOperation.update(overlayId, {
+            eyebrow: data.completed ? 'Deletion complete' : data.failed ? 'Deletion failed' : 'Permanent deletion',
+            title: data.completed ? 'Tenant deleted' : data.failed ? 'Deletion failed' : 'Deleting tenant',
+            message: data.message || 'Removing tenant infrastructure…',
+            progress: data.progress ?? 5,
+        });
+    };
+
+    const schedulePoll = (delay = 900) => {
+        if (!busy) return;
+        window.clearTimeout(pollTimer);
+        pollTimer = window.setTimeout(poll, delay);
+    };
+
+    const finishAndRedirect = (url, message) => {
+        busy = false;
+        window.clearTimeout(pollTimer);
+        showProgress({completed:true, progress:100, message:message || 'Tenant deletion completed. Opening the tenant list…'});
+        window.setTimeout(() => window.location.assign(url || @json(route('central.tenants.index'))), 650);
+    };
+
+    const fail = (message) => {
+        if (!busy) return;
+        busy = false;
+        window.clearTimeout(pollTimer);
+        window.ControlCenterOperation.end(overlayId);
+        if (errors) {
+            errors.textContent = message || 'Tenant deletion failed.';
+            errors.classList.remove('hidden');
+        }
+    };
+
+    const poll = async () => {
+        if (!busy) return;
+
+        try {
+            const response = await fetch(statusUrl, {headers:{Accept:'application/json'}, cache:'no-store'});
+            const data = await response.json();
+            showProgress(data);
+
+            if (data.completed) return finishAndRedirect(data.redirect, data.message);
+            if (data.failed) return fail(data.message);
+        } catch (_) {
+            // A transient status request failure should not interrupt deletion.
+        }
+
+        schedulePoll();
+    };
+
+    if (form) {
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (busy) return;
+
+            if (errors) {
+                errors.textContent = '';
+                errors.classList.add('hidden');
+            }
+
+            busy = true;
+            window.ControlCenterOperation.begin(overlayId, {
+                eyebrow: 'Permanent deletion',
+                title: 'Deleting tenant',
+                message: 'Validating confirmation and preparing permanent deletion…',
+                progress: 5,
+            });
+            schedulePoll(150);
+
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: {Accept:'application/json'},
+                });
+                const data = await response.json();
+
+                if (!response.ok) throw data;
+                finishAndRedirect(data.redirect, data.message);
+            } catch (data) {
+                const message = data?.errors ? Object.values(data.errors).flat().join(' ') : (data?.message || 'Tenant deletion failed.');
+                fail(message);
+            }
+        });
+    }
+
+    if (resumeDeletion) {
+        busy = true;
+        window.ControlCenterOperation.begin(overlayId, {
+            eyebrow: 'Permanent deletion',
+            title: 'Deleting tenant',
+            message: 'Resuming deletion progress…',
+            progress: 10,
+        });
+        schedulePoll(100);
+    }
+})();
+</script>
+@endpush
