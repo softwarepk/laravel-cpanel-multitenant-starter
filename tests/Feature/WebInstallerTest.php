@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\EnvironmentFile;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 
@@ -49,6 +50,49 @@ it('serves the installer as a guided wizard without normal web session middlewar
         ->assertSee('Review setup')
         ->assertSee(public_path())
         ->assertSee('Install &amp; configure', false);
+});
+
+it('uses discovered deployment defaults instead of blank or development template placeholders', function (): void {
+    $environment = new class extends EnvironmentFile
+    {
+        /** @return array<string, string> */
+        public function existingNonSecretValues(): array
+        {
+            return [
+                'APP_NAME' => 'Multi-Tenant Starter',
+                'APP_URL' => 'http://localhost',
+                'CENTRAL_DOMAINS' => '127.0.0.1,localhost',
+                'TENANT_PLATFORM_DOMAIN' => 'tenants.example.com',
+                'TENANT_PLATFORM_DOCUMENT_ROOT' => '',
+                'CUSTOM_DOMAIN_DNS_TARGET' => '',
+                'DB_DATABASE' => 'database/database.sqlite',
+                'DB_USERNAME' => '',
+                'TENANT_DB_USERNAME' => '',
+                'CPANEL_TENANT_DB_PREFIX' => '',
+                'CPANEL_API_HOST' => '',
+                'CPANEL_API_USER' => '',
+            ];
+        }
+    };
+
+    app()->instance(EnvironmentFile::class, $environment);
+
+    $response = $this
+        ->withHeader('Host', 'central.test')
+        ->withServerVariables(['HTTPS' => 'on', 'DOCUMENT_ROOT' => public_path()])
+        ->get('/install');
+
+    $response
+        ->assertOk()
+        ->assertSee('value="https://central.test"', false)
+        ->assertSee('name="central_domain" type="text" value="central.test"', false)
+        ->assertSee('name="platform_domain" type="text" value="central.test"', false)
+        ->assertSee('name="document_root" type="text" value="'.public_path().'"', false)
+        ->assertSee('name="custom_domain_dns_target" type="text" value="central.test"', false)
+        ->assertDontSee('value="http://localhost"', false)
+        ->assertDontSee('value="127.0.0.1,localhost"', false)
+        ->assertDontSee('value="tenants.example.com"', false)
+        ->assertDontSee('value="database/database.sqlite"', false);
 });
 
 it('preflights cPanel ownership before the database step', function (): void {
