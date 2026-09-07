@@ -139,7 +139,31 @@ it('allows identity reuse only after a clean completed deletion', function (): v
     expect($started->blocksIdentityReuse())->toBeTrue();
 });
 
-it('marks a stale queued deletion failed instead of leaving the page blocked forever', function (): void {
+it('keeps a deletion active inside the stale safety window', function (): void {
+    $history = TenantDeletionRecord::query()->create([
+        'tenant_id' => 'slow-tenant',
+        'tenant_name' => 'Slow Tenant',
+        'database_name' => 'tenant_slow',
+        'platform_domain' => 'slow.example.test',
+        'custom_domains' => [],
+        'status' => 'started',
+        'cleanup_results' => [],
+    ]);
+
+    $history->timestamps = false;
+    $history->updated_at = now()->subMinutes(15);
+    $history->save();
+
+    $data = app(QueuedTenantDeletionController::class)
+        ->deletionStatus('slow-tenant')
+        ->getData(true);
+
+    expect($data['status'])->toBe('started');
+    expect($data['failed'])->toBeFalse();
+    expect($history->refresh()->status)->toBe('started');
+});
+
+it('marks a genuinely stale queued deletion failed instead of leaving the page blocked forever', function (): void {
     $history = TenantDeletionRecord::query()->create([
         'tenant_id' => 'stale-tenant',
         'tenant_name' => 'Stale Tenant',
@@ -151,7 +175,7 @@ it('marks a stale queued deletion failed instead of leaving the page blocked for
     ]);
 
     $history->timestamps = false;
-    $history->updated_at = now()->subMinutes(15);
+    $history->updated_at = now()->subMinutes(25);
     $history->save();
 
     $data = app(QueuedTenantDeletionController::class)
@@ -165,7 +189,7 @@ it('marks a stale queued deletion failed instead of leaving the page blocked for
     expect($history->refresh()->status)->toBe('failed');
 });
 
-it('marks stranded provisioning failed so it can be safely retried', function (): void {
+it('keeps provisioning active inside the stale safety window', function (): void {
     $tenant = $this->testTenant;
     $tenant->update([
         'status' => 'provisioning',
@@ -174,6 +198,25 @@ it('marks stranded provisioning failed so it can be safely retried', function ()
     ]);
     $tenant->timestamps = false;
     $tenant->updated_at = now()->subMinutes(15);
+    $tenant->save();
+
+    $data = app(QueuedTenantProvisioningController::class)
+        ->provisioningStatus((string) $tenant->getTenantKey())
+        ->getData(true);
+
+    expect($data['provisioning_status'])->toBe('domain');
+    expect($tenant->refresh()->provisioning_error)->toBeNull();
+});
+
+it('marks genuinely stranded provisioning failed so it can be safely retried', function (): void {
+    $tenant = $this->testTenant;
+    $tenant->update([
+        'status' => 'provisioning',
+        'provisioning_status' => 'domain',
+        'provisioning_error' => null,
+    ]);
+    $tenant->timestamps = false;
+    $tenant->updated_at = now()->subMinutes(25);
     $tenant->save();
 
     $data = app(QueuedTenantProvisioningController::class)
