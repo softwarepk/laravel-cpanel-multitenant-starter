@@ -6,9 +6,10 @@ use App\Services\InstallationDiscovery;
 use App\Services\InstallationState;
 use App\Services\WebInstaller;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rules\Password;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 class InstallationController extends Controller
@@ -21,14 +22,18 @@ class InstallationController extends Controller
 
     public function create(Request $request): Response
     {
-        abort_unless($this->state->requiresInstallation(), 404);
+        if (! $this->state->requiresInstallation()) {
+            return new RedirectResponse('/central/login', 302);
+        }
 
         return $this->render($request);
     }
 
     public function store(Request $request): Response
     {
-        abort_unless($this->state->requiresInstallation(), 404);
+        if (! $this->state->requiresInstallation()) {
+            return new RedirectResponse('/central/login', 302);
+        }
 
         $validator = Validator::make($request->all(), [
             'app_name' => ['required', 'string', 'max:120'],
