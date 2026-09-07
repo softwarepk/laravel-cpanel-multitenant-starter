@@ -8,12 +8,12 @@ Use this repository when one Laravel deployment must serve multiple organization
 
 This is a sibling of the single-organization starter, not a replacement for it.
 
-This repository is intentionally a **starter**, not a finished production SaaS product. It provides safe structural defaults and clear extension points while leaving application-specific choices such as MFA, stronger password rules, queue topology, backup policy, reverse-proxy configuration, and retention policy to the application built from it. Review `docs/PRODUCTION-CHECKLIST.md` before taking a derived application live.
+This repository is intentionally a **starter**, not a finished production SaaS product. It provides safe structural defaults and clear extension points while leaving application-specific choices such as MFA, stronger password rules, backup policy, reverse-proxy configuration, and retention policy to the application built from it. Review `docs/PRODUCTION-CHECKLIST.md` before taking a derived application live.
 
 ## Architecture
 
 - One shared Laravel codebase and release.
-- One central/landlord database for tenant metadata, domains, central administrators, settings, deletion history, and audit events.
+- One central/landlord database for tenant metadata, domains, central administrators, settings, deletion history, audit events, queue records, and lifecycle state.
 - One database per tenant for tenant users and application data.
 - Domain/subdomain-first tenant resolution before normal application/session handling.
 - Tenant-aware filesystem and queue context through `stancl/tenancy`.
@@ -30,7 +30,8 @@ The starter intentionally carries forward the proven administrative decisions in
 
 - central administrator authentication;
 - tenant listing and detail screens;
-- tenant provisioning status and retry flow;
+- queued tenant provisioning with durable stage/progress state;
+- provisioning retry and stale-operation recovery;
 - database-per-tenant provisioning;
 - collision-resistant persistent tenant database identity;
 - platform subdomain provisioning;
@@ -38,8 +39,8 @@ The starter intentionally carries forward the proven administrative decisions in
 - HTTPS readiness checks before activation;
 - custom-domain registration, verification, primary-domain management, and removal;
 - tenant suspension/reactivation;
-- guarded tenant deletion/deprovisioning;
-- durable deletion cleanup history;
+- guarded queued tenant deletion/deprovisioning;
+- durable deletion cleanup history and progress;
 - configurable password policy;
 - central settings;
 - central audit log.
@@ -117,9 +118,10 @@ Important concepts:
 - `TENANT_DB_USERNAME` is the MySQL/MariaDB user Laravel uses for tenant databases and the same user to which cPanel provisioning grants database privileges.
 - `CPANEL_TENANT_DB_PREFIX` is an optional naming prefix. Generated database names include a deterministic short hash to prevent lossy-normalization collisions.
 - once a tenant database identity is assigned it is retained for provisioning retries, even if naming configuration later changes.
-- deleted tenant IDs/database identities remain reserved in deletion history rather than being automatically recycled.
+- deletion history blocks tenant-ID/database reuse while cleanup is running, failed, or completed with warnings; reuse is allowed only after the latest matching deletion completed cleanly with no cleanup failures.
 - `SESSION_DRIVER=database` and `CACHE_STORE=database` preserve the central/tenant database boundary.
-- `QUEUE_CONNECTION=database` keeps queue rows centrally while preserving tenant context in job payloads.
+- `QUEUE_CONNECTION=database` is required by the built-in tenant provisioning/deletion workflow and keeps queue rows centrally while preserving tenant context for tenant-originated jobs.
+- `DB_QUEUE_RETRY_AFTER` should remain comfortably above the 600-second tenant-operation job timeout; the starter default is 900 seconds.
 - forced HTTPS defaults on when `APP_ENV=production` unless explicitly overridden.
 
 Do not commit cPanel tokens or real credentials.
@@ -142,21 +144,25 @@ php artisan optimize
 
 Central migrations update the control plane. Tenant migrations update the application schema in every tenant database.
 
-When a new tenant is created through the Control Center, the provisioning workflow creates/confirms the platform hostname and database, applies tenant migrations, creates the initial tenant administrator, and waits for trusted HTTPS before activation.
+Tenant creation and permanent deletion are built-in background operations. Before using those Control Center actions, run a central queue worker. On shared cPanel hosting this may be a managed persistent worker or a cron-driven process such as:
 
-Provisioning remains synchronous by default to keep the starter simple. If a derived application regularly exceeds web/PHP request limits during provisioning, `ProvisionTenant` can be moved behind the existing central queue without changing the lifecycle states.
+```bash
+php artisan queue:work --queue=default --stop-when-empty --tries=1 --timeout=600
+```
 
-If the application dispatches asynchronous jobs, arrange a database queue worker. On shared cPanel hosting this may be a managed long-running worker where available, or a cron-driven `php artisan queue:work --stop-when-empty --tries=3` process.
+Use `flock` or an equivalent mechanism when available to prevent overlapping cron workers, and restart long-running workers after deployments.
+
+When a new tenant is created through the Control Center, the browser request reserves the tenant identity and queues provisioning. The background job creates/confirms the platform hostname and database, applies tenant migrations, creates the initial tenant administrator, and waits for trusted HTTPS before activation. Progress is persisted so leaving the page does not stop the operation.
 
 ## Tenant deletion
 
-Permanent tenant deletion remains explicitly guarded: the tenant must first be suspended and the administrator must confirm the tenant ID and current Control Center password.
+Permanent tenant deletion remains explicitly guarded. An operational tenant must first be suspended; a tenant whose provisioning failed may be cleaned up directly. The administrator must confirm the tenant ID and current Control Center password.
 
-Cleanup across cPanel, the filesystem, and MySQL is intentionally best-effort rather than pretending those systems form one transaction. The application attempts to remove the platform domain, managed custom domains, tenant storage, and tenant database. The central tenant record can still be removed if an external cleanup step fails.
+Deletion runs in the central queue and records progress after each external cleanup stage. Cleanup across cPanel, the filesystem, and MySQL is intentionally best-effort rather than pretending those systems form one transaction. The application attempts to remove the platform domain, managed custom domains, tenant storage, and tenant database. The central tenant record can still be removed if an external cleanup step fails.
 
 A durable deletion record is retained under **Central Activity** with the original tenant/database/domain identifiers and the result/error for each cleanup step so manual follow-up remains possible.
 
-Deleted tenant IDs and database identities are retained as reservations. A new tenant must use a new tenant ID rather than automatically reusing an identifier that may still have residual database or storage infrastructure.
+A tenant identity is reusable only after the latest matching deletion record is fully `completed` with no failed cleanup results. Started, failed, or warning-bearing deletion history continues to reserve that tenant/database identity so residual infrastructure cannot be silently inherited.
 
 ## Adding project schema
 
@@ -184,8 +190,8 @@ Treat these as architectural invariants:
 6. Central routes must never become a back door to tenant business data.
 7. A record identifier from Tenant A must never allow access to Tenant B.
 8. Tenant database identity must be unique and immutable once assigned.
-9. Deleted tenant identities must not be silently reused.
-10. Destructive deprovisioning must remain explicit and guarded.
+9. Tenant/database identities must not be reused while deletion history indicates unresolved or incomplete cleanup.
+10. Destructive deprovisioning must remain explicit, guarded, and generation-aware.
 
 ## Verification
 
