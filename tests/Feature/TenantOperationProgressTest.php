@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Tenants\DeleteTenant;
 use App\Http\Controllers\QueuedTenantDeletionController;
 use App\Http\Controllers\QueuedTenantProvisioningController;
 use App\Models\TenantDeletionRecord;
@@ -182,4 +183,19 @@ it('marks stranded provisioning failed so it can be safely retried', function ()
     expect($data['provisioning_status'])->toBe('failed');
     expect($data['message'])->toBe('Provisioning failed.');
     expect($tenant->refresh()->provisioning_error)->toContain('stopped reporting progress');
+});
+
+it('allows a tenant with failed provisioning to enter permanent cleanup', function (): void {
+    $tenant = $this->testTenant;
+    $tenant->update([
+        'status' => 'failed',
+        'provisioning_status' => 'failed',
+        'provisioning_error' => 'Provisioning stopped before completion.',
+    ]);
+
+    $history = app(DeleteTenant::class)->begin($tenant);
+
+    expect($history->tenant_id)->toBe((string) $tenant->getTenantKey());
+    expect($history->status)->toBe('started');
+    expect($history->platform_domain)->toBe($this->testTenantDomain);
 });
