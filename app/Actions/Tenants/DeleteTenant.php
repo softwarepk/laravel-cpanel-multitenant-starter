@@ -74,8 +74,10 @@ class DeleteTenant
 
         $database = (string) ($history->database_name ?? '');
         $platform = $history->platform_domain;
+        /** @var list<string> $custom */
         $custom = $history->custom_domains ?? [];
         $storagePath = $this->tenantStoragePath($tenantId);
+        /** @var array<string, array{status:string,target:string|null,error?:string}> $results */
         $results = (array) $history->cleanup_results;
 
         if (! array_key_exists('platform_domain', $results)) {
