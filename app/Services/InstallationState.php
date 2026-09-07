@@ -12,7 +12,7 @@ class InstallationState
             return false;
         }
 
-        return $this->isPending() || app()->environment('production');
+        return $this->isPending() || $this->isProductionEnvironment();
     }
 
     public function isComplete(): bool
@@ -58,9 +58,14 @@ class InstallationState
 
     private function isLegacyConfigured(): bool
     {
-        return app()->environment('production')
+        return $this->isProductionEnvironment()
             && ! $this->isPending()
             && trim((string) config('app.key')) !== '';
+    }
+
+    private function isProductionEnvironment(): bool
+    {
+        return strtolower((string) config('app.env')) === 'production';
     }
 
     private function pendingFile(): string
