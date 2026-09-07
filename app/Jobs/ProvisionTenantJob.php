@@ -43,7 +43,12 @@ class ProvisionTenantJob implements ShouldQueue
             $this->adminName,
             $this->adminEmail,
             Crypt::decryptString($this->encryptedAdminPassword),
+            $this->operationId,
         );
+
+        if ((string) $tenant->getInternal('provisioning_operation_id') !== $this->operationId) {
+            return;
+        }
 
         $domain = $tenant->domains()->where('type', 'platform')->value('domain');
         $active = $tenant->isActive();
