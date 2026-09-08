@@ -116,7 +116,7 @@ class CentralTenantController extends Controller
         $validated = $request->validate([
             'domain' => [
                 'required', 'string', 'max:253',
-                'regex:/^(?=.{1,253}\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/',
+                'regex:/^(?=.{1,253}\\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/',
                 Rule::notIn(config('tenancy.central_domains', [])), 'unique:domains,domain',
             ],
         ], [
