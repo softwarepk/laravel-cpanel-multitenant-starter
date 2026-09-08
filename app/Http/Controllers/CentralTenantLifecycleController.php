@@ -62,6 +62,22 @@ class CentralTenantLifecycleController extends Controller
             throw ValidationException::withMessages(['current_password' => 'The Control Center password is incorrect.']);
         }
 
+        $latestDeletion = TenantDeletionRecord::query()
+            ->where('tenant_id', $tenantId)
+            ->latest('id')
+            ->first();
+
+        if ($latestDeletion instanceof TenantDeletionRecord && (string) $latestDeletion->status === 'started') {
+            if ($this->operationRecentlyAdvanced($latestDeletion)) {
+                abort(409, 'Permanent deletion has reported progress recently and may still be running. Check deletion status and only retry after the saved operation has stopped advancing for five minutes.');
+            }
+
+            $latestDeletion->update([
+                'status' => 'failed',
+                'completed_at' => now(),
+            ]);
+        }
+
         try {
             $history = $deleteTenant->handle($tenant, $admin);
         } catch (Throwable $e) {
@@ -90,5 +106,16 @@ class CentralTenantLifecycleController extends Controller
         }
 
         return redirect()->route('central.tenants.index')->with('status', $message);
+    }
+
+    private function operationRecentlyAdvanced(TenantDeletionRecord $record): bool
+    {
+        if ($record->updated_at === null) {
+            return false;
+        }
+
+        $seconds = max(1, (int) config('central.lifecycle.operation_stale_after_seconds', 300));
+
+        return $record->updated_at->gt(now()->subSeconds($seconds));
     }
 }
