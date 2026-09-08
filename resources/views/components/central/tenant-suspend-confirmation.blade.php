@@ -10,7 +10,11 @@
     Suspend tenant
 </button>
 
-<dialog id="{{ $dialogId }}" class="fixed inset-0 m-auto w-[min(92vw,520px)] rounded-3xl border border-zinc-200 bg-white p-0 text-zinc-950 shadow-2xl backdrop:bg-zinc-950/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+<dialog
+    id="{{ $dialogId }}"
+    class="w-[min(92vw,520px)] rounded-3xl border border-zinc-200 bg-white p-0 text-zinc-950 shadow-2xl backdrop:bg-zinc-950/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+    style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;"
+>
     <div class="p-6 sm:p-7">
         <div class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Tenant suspension</div>
         <h3 class="mt-2 text-2xl font-semibold tracking-tight">Suspend {{ $tenant->name ?: $tenant->id }}?</h3>
