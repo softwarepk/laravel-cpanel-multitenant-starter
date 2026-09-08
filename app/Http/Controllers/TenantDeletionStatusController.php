@@ -25,8 +25,10 @@ class TenantDeletionStatusController extends Controller
             ]);
         }
 
-        $results = is_array($record->cleanup_results) ? $record->cleanup_results : [];
-        $customDomains = is_array($record->custom_domains) ? $record->custom_domains : [];
+        $cleanupResults = $record->getAttribute('cleanup_results');
+        $customDomainValues = $record->getAttribute('custom_domains');
+        $results = is_array($cleanupResults) ? $cleanupResults : [];
+        $customDomains = is_array($customDomainValues) ? $customDomainValues : [];
         $totalSteps = 4 + count($customDomains);
         $completedSteps = count($results);
         $status = (string) $record->status;
