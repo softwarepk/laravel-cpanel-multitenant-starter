@@ -7,6 +7,7 @@ use App\Http\Controllers\CentralTenantController;
 use App\Http\Controllers\CentralTenantPagesController;
 use App\Http\Controllers\TenantDeletionStatusController;
 use App\Models\CentralAuditLog;
+use App\Models\Domain;
 use App\Models\TenantDeletionRecord;
 use App\Services\CentralAuditLogger;
 use Illuminate\Http\Request;
@@ -104,7 +105,10 @@ it('blocks every custom-domain mutation while deletion cleanup is unresolved', f
     expect($provisioner->called)->toBeFalse()
         ->and($verifier->called)->toBeFalse()
         ->and($deprovisioner->called)->toBeFalse()
-        ->and($tenant->domains()->where('domain', 'new.example.test')->exists())->toBeFalse()
+        ->and(Domain::on(config('tenancy.database.central_connection'))
+            ->where('tenant_id', (string) $tenant->getTenantKey())
+            ->where('domain', 'new.example.test')
+            ->exists())->toBeFalse()
         ->and($custom->refresh()->is_primary)->toBeFalse();
 });
 
@@ -130,7 +134,10 @@ it('still allows central domain management for a clean suspended tenant', functi
     );
 
     expect($provisioner->called)->toBeTrue()
-        ->and($tenant->domains()->where('domain', 'portal.example.test')->exists())->toBeTrue();
+        ->and(Domain::on(config('tenancy.database.central_connection'))
+            ->where('tenant_id', (string) $tenant->getTenantKey())
+            ->where('domain', 'portal.example.test')
+            ->exists())->toBeTrue();
 });
 
 it('shows only current-generation audit activity on the tenant detail page', function (): void {
