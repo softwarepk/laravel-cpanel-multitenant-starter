@@ -38,10 +38,12 @@ Do not weaken these without an explicit architectural decision:
 - tenant context is determined from the request host before ordinary tenant app/session behavior;
 - tenant-owned migrations live in `database/migrations/tenant`;
 - tenant storage uses tenancy-aware filesystem context;
-- tenant-originated queued work preserves tenant context;
+- tenant-originated queued work preserves tenant context when a derived application opts into queues;
 - central administrators are distinct from tenant users;
 - suspension must prevent tenant application access;
-- provisioning and destructive tenant/database/domain removal remain guarded and explicit.
+- provisioning and destructive tenant/database/domain removal remain guarded and explicit;
+- deleted tenant/database identities may be reused only after the latest deletion completed cleanly;
+- domain/configuration mutations require completed provisioning and no unresolved deletion cleanup.
 
 Do not solve tenant isolation by adding `tenant_id` to every business table. The database boundary is the primary isolation boundary.
 
@@ -59,7 +61,11 @@ The cPanel implementation automates tenant database and domain provisioning usin
 
 Provisioning is explicit. `ProvisionTenant` is the production-style path and `php artisan tenant:local-create` is the local SQLite path. Do not restore implicit infrastructure provisioning to a generic `TenantCreated` Eloquent/package event.
 
+The starter runs tenant creation and permanent deletion synchronously by default and therefore requires no queue worker, cron job, Supervisor, Horizon, or similar background-process infrastructure. A derived application may deliberately introduce queues later when its own workload or hosting limits justify that choice; do not make asynchronous lifecycle processing a starter prerequisite.
+
 Once a database name is assigned to a tenant, retries must use that persisted identity rather than recalculating it from current naming configuration.
+
+A tenant/database identity may be reused only after the latest deletion completed cleanly. Failed, incomplete, or warning-bearing cleanup must continue to block reuse so residual infrastructure cannot be attached to a later tenant generation.
 
 Never embed real cPanel credentials, account names, production domains, or database secrets in source code, tests, screenshots, or documentation.
 
@@ -78,6 +84,10 @@ MFA is an optional production hardening choice for derived applications, not a m
 ## UI
 
 Preserve the base starter's UI system. Prefer `x-ui.*` primitives and existing Flux patterns. The Control Center should remain a professional administration surface, not a separate visual product.
+
+Control Center visibility rules are not authorization/lifecycle enforcement by themselves. If the UI hides a tenant mutation while provisioning or deletion cleanup is unresolved, the corresponding backend action must enforce the same lifecycle boundary.
+
+When a cleanly deleted tenant ID is reused, tenant-detail views should show only the current tenant generation's operational activity. Global Central Activity should retain the complete historical audit/deletion record.
 
 ## Laravel conventions
 
@@ -99,9 +109,10 @@ Every tenancy-sensitive change needs focused tests for the boundary it touches. 
 - user isolation;
 - storage isolation;
 - tenant suspension;
-- custom/platform domain ownership;
-- queue tenant context;
+- custom/platform domain ownership and lifecycle mutation guards;
+- optional queue tenant context;
 - explicit provisioning boundaries;
+- clean-only tenant identity reuse and current-generation activity/progress scoping;
 - inability to access another tenant by guessed IDs/URLs.
 
 Do not build elaborate infrastructure simulations merely for completeness. Real cPanel behavior must ultimately be validated on a staging account; automated tests should concentrate on deterministic application logic and isolation boundaries.
