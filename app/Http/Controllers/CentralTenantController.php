@@ -8,6 +8,7 @@ use App\Contracts\CustomDomainProvisioner;
 use App\Contracts\CustomDomainVerifier;
 use App\Models\Domain;
 use App\Models\Tenant;
+use App\Models\TenantDeletionRecord;
 use App\Services\CentralAuditLogger;
 use App\Services\PlatformHttpsVerifier;
 use Illuminate\Http\JsonResponse;
@@ -110,11 +111,12 @@ class CentralTenantController extends Controller
 
     public function addCustomDomain(Request $request, Tenant $tenant, CustomDomainProvisioner $provisioner, CentralAuditLogger $audit): RedirectResponse
     {
+        $this->ensureTenantConfigurationMutable($tenant);
         $request->merge(['domain' => strtolower(trim((string) $request->input('domain')))]);
         $validated = $request->validate([
             'domain' => [
                 'required', 'string', 'max:253',
-                'regex:/^(?=.{1,253}\\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/',
+                'regex:/^(?=.{1,253}\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/',
                 Rule::notIn(config('tenancy.central_domains', [])), 'unique:domains,domain',
             ],
         ], [
@@ -151,6 +153,7 @@ class CentralTenantController extends Controller
     public function verifyCustomDomain(Request $request, Tenant $tenant, Domain $domain, CustomDomainProvisioner $provisioner, CustomDomainVerifier $verifier, CentralAuditLogger $audit): RedirectResponse
     {
         $this->ensureDomainBelongsToTenant($domain, $tenant);
+        $this->ensureTenantConfigurationMutable($tenant);
         abort_unless($domain->type === 'custom', 409);
         $wasCpanelReady = $domain->cpanel_verified_at !== null;
 
@@ -191,6 +194,7 @@ class CentralTenantController extends Controller
     public function makePrimaryDomain(Request $request, Tenant $tenant, Domain $domain, CentralAuditLogger $audit): RedirectResponse
     {
         $this->ensureDomainBelongsToTenant($domain, $tenant);
+        $this->ensureTenantConfigurationMutable($tenant);
         abort_unless($domain->status === 'active', 409);
         DB::connection(config('tenancy.database.central_connection'))->transaction(function () use ($tenant, $domain): void {
             $tenant->domains()->update(['is_primary' => false]);
@@ -204,6 +208,7 @@ class CentralTenantController extends Controller
     public function deleteCustomDomain(Request $request, Tenant $tenant, Domain $domain, CustomDomainDeprovisioner $deprovisioner, CentralAuditLogger $audit): RedirectResponse
     {
         $this->ensureDomainBelongsToTenant($domain, $tenant);
+        $this->ensureTenantConfigurationMutable($tenant);
         abort_unless($domain->type === 'custom', 409);
         abort_if($domain->is_primary, 409, 'Make another active domain primary before removing this custom domain.');
 
@@ -236,6 +241,26 @@ class CentralTenantController extends Controller
             'failed' => 'Provisioning failed.',
             default => 'Provisioning is in progress…',
         };
+    }
+
+    private function ensureTenantConfigurationMutable(Tenant $tenant): void
+    {
+        abort_unless(
+            $tenant->provisioning_status === 'active' && in_array($tenant->status, ['active', 'suspended'], true),
+            409,
+            'Tenant configuration is unavailable until provisioning is complete and the tenant is active or suspended.',
+        );
+
+        $latestDeletion = TenantDeletionRecord::query()
+            ->where('tenant_id', (string) $tenant->getTenantKey())
+            ->latest('id')
+            ->first();
+
+        abort_if(
+            $latestDeletion instanceof TenantDeletionRecord && $latestDeletion->isUnresolved(),
+            409,
+            'Tenant configuration is unavailable while permanent-deletion cleanup is unresolved.',
+        );
     }
 
     private function ensureDomainBelongsToTenant(Domain $domain, Tenant $tenant): void
