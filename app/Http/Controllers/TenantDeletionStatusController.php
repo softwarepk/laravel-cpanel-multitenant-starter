@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Tenant;
 use App\Models\TenantDeletionRecord;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
@@ -10,10 +11,17 @@ class TenantDeletionStatusController extends Controller
 {
     public function __invoke(string $tenantId): JsonResponse
     {
-        $record = TenantDeletionRecord::query()
-            ->where('tenant_id', $tenantId)
-            ->latest('id')
-            ->first();
+        $tenant = Tenant::query()->find($tenantId);
+        $recordQuery = TenantDeletionRecord::query()->where('tenant_id', $tenantId);
+
+        if ($tenant instanceof Tenant) {
+            $recordQuery->where(function ($query) use ($tenant): void {
+                $query->whereNull('completed_at')
+                    ->orWhere('completed_at', '>', $tenant->created_at);
+            });
+        }
+
+        $record = $recordQuery->latest('id')->first();
 
         if (! $record instanceof TenantDeletionRecord) {
             return response()->json([
