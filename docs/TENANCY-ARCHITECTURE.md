@@ -50,7 +50,7 @@ Production database names are generated from the tenant ID plus a deterministic 
 
 Once a database name is assigned to a tenant, provisioning retries use the persisted identity. Later changes to `CPANEL_TENANT_DB_PREFIX` apply to new tenants only and do not silently move existing tenants to a different database.
 
-Deleted tenant IDs and their database identities remain reserved in deletion history and are not automatically reusable. This avoids reconnecting a future tenant to residual database/storage infrastructure after a partial external cleanup. Use a new tenant ID for a new organization rather than recycling a deleted identifier.
+A deleted tenant ID/database identity may be reused only after the latest deletion completed cleanly. Failed, incomplete, or warning-bearing cleanup blocks reuse so a future tenant cannot reconnect to residual database, domain, or storage infrastructure.
 
 The `TENANT_DB_USERNAME` setting is the database user Laravel uses for tenant connections and the same user to which cPanel provisioning grants access.
 
@@ -65,7 +65,7 @@ request host
     -> initialize tenancy
        - switch DB connection
        - switch filesystem context
-       - prepare queue context
+       - prepare optional queue context
     -> start ordinary tenant authentication/session/application behavior
 ```
 
@@ -97,6 +97,8 @@ The platform hostname is retained as an operational fallback even when a custom 
 
 Custom domains created through the Control Center are treated as platform-managed infrastructure. A non-primary custom domain can be removed through the Control Center, which verifies the cPanel document root before deleting it.
 
+Domain mutations are allowed only after provisioning is complete, while the tenant is active or suspended, and while no deletion cleanup remains unresolved. This rule is enforced by the backend as well as the Control Center UI.
+
 ## Explicit provisioning boundary
 
 Creating a `Tenant` Eloquent model is a control-plane database operation only. It does not implicitly create/migrate tenant infrastructure.
@@ -122,11 +124,11 @@ Provisioning is an explicit stateful workflow. The generic sequence is:
 
 Failures are recorded as provisioning failures and may be retried. A retry preserves the existing database identity.
 
-Provisioning is synchronous in the starter for simplicity. A derived application can place `ProvisionTenant` behind the central queue if hosting execution limits make that necessary; the state model does not depend on synchronous execution.
+Provisioning is synchronous in the starter for simplicity and does not require a queue worker or scheduled cron job. A derived application can place `ProvisionTenant` behind an application-specific queue if hosting execution limits make that necessary; the state model does not depend on synchronous execution.
 
 Suspension is a reversible control-plane state. Suspended tenants must not be allowed to use the tenant application.
 
-Permanent deletion is destructive infrastructure work and must remain guarded. Do not wire database/domain destruction directly to Eloquent model deletion events.
+Permanent deletion is destructive infrastructure work and must remain guarded. Operational tenants must be suspended first; failed-provisioning tenants may be cleaned up directly with the same guarded confirmation. Do not wire database/domain destruction directly to Eloquent model deletion events.
 
 ## Deletion history and partial cleanup
 
@@ -144,7 +146,7 @@ Before cleanup begins, a central `tenant_deletion_records` snapshot preserves:
 
 The completed record stores the result/error for every cleanup step and remains available under Central Activity after the tenant record itself is gone. If deletion of the central tenant record fails, the overall operation is reported as failed.
 
-Deletion history also reserves the deleted tenant/database identity so a later tenant cannot accidentally inherit residual resources with the same deterministic name or tenant storage suffix.
+Deletion history acts as a reuse guard: clean completion permits the same tenant/database identity to be used again, while failed, incomplete, or warning-bearing cleanup continues to block reuse. Tenant-detail audit/progress views are scoped to the current tenant generation so reused IDs do not mix old operational history into the new tenant workspace.
 
 Derived applications remain responsible for their own backup, retention, and legal-hold policy.
 
@@ -164,9 +166,9 @@ A derived application's final browser-facing download/public-file design must st
 
 Database-backed sessions and cache are the starter defaults. Both follow Laravel's active database connection, so after tenant initialization they use that tenant's local `sessions` and `cache` tables. Central requests remain on the central database.
 
-Queue infrastructure is intentionally different: the database queue remains central. The queue connection is pinned to the configured central connection while `stancl/tenancy` adds the originating tenant key to tenant-aware job payloads and restores tenant context when the worker executes the job. Tenant databases therefore do not need a `jobs` table.
+The starter itself defaults to `QUEUE_CONNECTION=sync` and requires no worker. If a derived application opts into the provided database queue, that queue remains central while `stancl/tenancy` adds the originating tenant key to tenant-aware job payloads and restores tenant context when the worker executes the job. Tenant databases therefore do not need a `jobs` table.
 
-Database queue dispatch uses `after_commit=true`, preventing a central queue row from being retained for tenant work that was dispatched inside a transaction that later rolled back.
+The optional database queue uses `after_commit=true`, preventing a central queue row from being retained for tenant work that was dispatched inside a transaction that later rolled back.
 
 If a project changes session, cache, or queue backends, tenant isolation must be re-verified for the new backend rather than assuming the same guarantees carry over automatically.
 
