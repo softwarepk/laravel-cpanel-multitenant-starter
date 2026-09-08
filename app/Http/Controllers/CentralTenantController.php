@@ -29,7 +29,13 @@ class CentralTenantController extends Controller
         ]);
 
         $validated = $request->validate([
-            'id' => ['required', 'string', 'max:32', 'regex:/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/', 'unique:tenants,id'],
+            'id' => [
+                'required',
+                'string',
+                'max:32',
+                'regex:/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/',
+                Rule::unique((string) config('tenancy.database.central_connection').'.tenants', 'id'),
+            ],
             'name' => ['required', 'string', 'max:120'],
             'admin_name' => ['required', 'string', 'max:120'],
             'admin_email' => ['required', 'email', 'max:255'],
@@ -117,7 +123,8 @@ class CentralTenantController extends Controller
             'domain' => [
                 'required', 'string', 'max:253',
                 'regex:/^(?=.{1,253}\\z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/',
-                Rule::notIn(config('tenancy.central_domains', [])), 'unique:domains,domain',
+                Rule::notIn(config('tenancy.central_domains', [])),
+                Rule::unique((string) config('tenancy.database.central_connection').'.domains', 'domain'),
             ],
         ], [
             'domain.regex' => 'The custom domain must be a hostname only, without a scheme, port, path, spaces, or other URL components.',
