@@ -47,7 +47,13 @@ class CentralTenantPagesController extends Controller
 
         return view('central.tenants.show', [
             'tenant' => $tenant,
-            'auditLogs' => CentralAuditLog::query()->with('centralAdmin')->where('tenant_id', (string) $tenant->getTenantKey())->latest('created_at')->limit(20)->get(),
+            'auditLogs' => CentralAuditLog::query()
+                ->with('centralAdmin')
+                ->where('tenant_id', (string) $tenant->getTenantKey())
+                ->where('created_at', '>=', $tenant->created_at)
+                ->latest('created_at')
+                ->limit(20)
+                ->get(),
             'unresolvedDeletion' => $unresolvedDeletion,
             'platformDomain' => (string) config('central.platform.domain'),
             'customDomainDnsTarget' => (string) config('central.custom_domain.dns_target'),
