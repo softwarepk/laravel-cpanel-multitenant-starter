@@ -254,8 +254,6 @@
 @push('scripts')
 <script>
 (() => {
-    if (!window.ControlCenterOperation) return;
-
     const csrfToken = @json(csrf_token());
     const tenantId = @json((string) $tenant->getTenantKey());
     const provisioningStatusUrl = @json(route('central.tenants.provisioning.status', ['tenantId' => (string) $tenant->getTenantKey()]));
@@ -272,6 +270,8 @@
     let deletionOverlayTimer = null;
     let provisionOverlayActive = false;
     let deletionOverlayActive = false;
+
+    const operation = () => window.ControlCenterOperation;
 
     const jsonFrom = async (response) => {
         try {
@@ -315,6 +315,12 @@
 
     const refreshProvisioningPage = async (manual = false) => {
         if (!pageProvisioningActive && !manual) return;
+        const button = document.getElementById('check-provisioning-status');
+        const originalLabel = button?.textContent;
+        if (manual && button) {
+            button.disabled = true;
+            button.textContent = 'Checking…';
+        }
         try {
             let data = await fetchProvisioning();
             updatePageProvisioning(data);
@@ -331,6 +337,11 @@
         } catch (_) {
             const message = document.getElementById('page-provision-message');
             if (message && manual) message.textContent = 'Status could not be checked just now. Try again in a moment.';
+        } finally {
+            if (manual && button && document.body.contains(button)) {
+                button.disabled = false;
+                button.textContent = originalLabel || 'Check status now';
+            }
         }
 
         if (pageProvisioningActive) provisionPageTimer = window.setTimeout(() => refreshProvisioningPage(false), 5000);
@@ -343,7 +354,7 @@
 
     const updateProvisionOverlay = (data = {}) => {
         const stage = data.provisioning_status || 'starting';
-        window.ControlCenterOperation.update('tenant-provision-operation', {
+        operation()?.update('tenant-provision-operation', {
             eyebrow: stage === 'active' ? 'Tenant ready' : stage === 'failed' ? 'Provisioning failed' : 'Tenant provisioning',
             title: stage === 'active' ? 'Tenant is ready' : stage === 'failed' ? 'Provisioning failed' : 'Provisioning tenant',
             message: data.message || 'Provisioning is in progress…',
@@ -366,7 +377,7 @@
             }
             if (data.provisioning_status === 'failed') {
                 provisionOverlayActive = false;
-                window.ControlCenterOperation.end('tenant-provision-operation');
+                operation()?.end('tenant-provision-operation');
                 return window.location.reload();
             }
             if (data.provisioning_status === 'https_pending') {
@@ -391,7 +402,7 @@
             const error = document.getElementById(form.dataset.errorTarget || '');
             if (error) error.classList.add('hidden');
             provisionOverlayActive = true;
-            window.ControlCenterOperation.begin('tenant-provision-operation', {
+            operation()?.begin('tenant-provision-operation', {
                 eyebrow:'Tenant provisioning',
                 title:'Continuing provisioning',
                 message:'Rechecking existing tenant resources and continuing from a safe point…',
@@ -412,7 +423,7 @@
             } catch (data) {
                 provisionOverlayActive = false;
                 if (provisionOverlayTimer) window.clearTimeout(provisionOverlayTimer);
-                window.ControlCenterOperation.end('tenant-provision-operation');
+                operation()?.end('tenant-provision-operation');
                 showFormError(form, data, 'Provisioning could not be completed.');
             }
         });
@@ -432,6 +443,12 @@
 
     const refreshDeletionPage = async (manual = false) => {
         if (!pageDeletionActive && !manual) return;
+        const button = document.getElementById('check-deletion-status');
+        const originalLabel = button?.textContent;
+        if (manual && button) {
+            button.disabled = true;
+            button.textContent = 'Checking…';
+        }
         try {
             const data = await fetchDeletion();
             updateDeletionPage(data);
@@ -440,6 +457,11 @@
         } catch (_) {
             const message = document.getElementById('page-deletion-message');
             if (message && manual) message.textContent = 'Deletion status could not be checked just now. Try again in a moment.';
+        } finally {
+            if (manual && button && document.body.contains(button)) {
+                button.disabled = false;
+                button.textContent = originalLabel || 'Check deletion status';
+            }
         }
         if (pageDeletionActive) deletionPageTimer = window.setTimeout(() => refreshDeletionPage(false), 3000);
     };
@@ -450,7 +472,7 @@
     });
 
     const updateDeletionOverlay = (data = {}) => {
-        window.ControlCenterOperation.update('tenant-delete-operation', {
+        operation()?.update('tenant-delete-operation', {
             eyebrow: data.status === 'completed' || data.status === 'completed_with_warnings' ? 'Deletion complete' : data.status === 'failed' ? 'Deletion failed' : 'Permanent deletion',
             title: data.status === 'completed' || data.status === 'completed_with_warnings' ? 'Tenant deleted' : data.status === 'failed' ? 'Deletion failed' : 'Deleting tenant',
             message: data.message || 'Permanent deletion is in progress…',
@@ -473,7 +495,7 @@
             }
             if (data.status === 'failed') {
                 deletionOverlayActive = false;
-                window.ControlCenterOperation.end('tenant-delete-operation');
+                operation()?.end('tenant-delete-operation');
                 return window.location.reload();
             }
         } catch (_) {
@@ -490,7 +512,7 @@
             const error = document.getElementById(form.dataset.errorTarget || '');
             if (error) error.classList.add('hidden');
             deletionOverlayActive = true;
-            window.ControlCenterOperation.begin('tenant-delete-operation', {
+            operation()?.begin('tenant-delete-operation', {
                 eyebrow:'Permanent deletion',
                 title:'Deleting tenant',
                 message:'Starting guarded tenant cleanup…',
@@ -514,7 +536,7 @@
             } catch (data) {
                 deletionOverlayActive = false;
                 if (deletionOverlayTimer) window.clearTimeout(deletionOverlayTimer);
-                window.ControlCenterOperation.end('tenant-delete-operation');
+                operation()?.end('tenant-delete-operation');
                 showFormError(form, data, 'Tenant deletion could not be completed.');
             }
         });
