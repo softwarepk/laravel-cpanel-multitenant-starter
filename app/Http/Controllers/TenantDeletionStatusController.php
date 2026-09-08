@@ -32,9 +32,10 @@ class TenantDeletionStatusController extends Controller
         $totalSteps = 4 + count($customDomains);
         $completedSteps = count($results);
         $status = (string) $record->status;
+        $seconds = max(1, (int) config('central.lifecycle.operation_stale_after_seconds', 300));
         $stale = $status === 'started'
             && $record->updated_at !== null
-            && $record->updated_at->lt(now()->subMinutes(2));
+            && $record->updated_at->lt(now()->subSeconds($seconds));
 
         $progress = match ($status) {
             'completed', 'completed_with_warnings', 'failed' => 100,
