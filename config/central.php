@@ -12,6 +12,13 @@ return [
         'dns_target' => strtolower(trim((string) env('CUSTOM_DOMAIN_DNS_TARGET', env('TENANT_PLATFORM_DOMAIN', '')))),
     ],
 
+    'lifecycle' => [
+        // A synchronous cPanel request may continue after the browser leaves.
+        // Do not start a second provisioning/deletion attempt until the saved
+        // operation has stopped reporting progress for this long.
+        'operation_stale_after_seconds' => 300,
+    ],
+
     'cpanel' => [
         'tenant_database_prefix' => env('CPANEL_TENANT_DB_PREFIX', ''),
         'api_host' => env('CPANEL_API_HOST'),

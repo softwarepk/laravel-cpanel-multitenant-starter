@@ -89,7 +89,7 @@ class CentralTenantController extends Controller
                 : back()->with('status', 'HTTPS is already ready.');
         }
 
-        abort_unless(in_array($tenant->provisioning_status, ['https_pending', 'active'], true), 409);
+        abort_unless($tenant->status === 'provisioning' && $tenant->provisioning_status === 'https_pending', 409);
         if (! $https->isReady($platform->domain)) {
             $tenant->update(['status' => 'provisioning', 'provisioning_status' => 'https_pending']);
             $platform->update(['status' => 'pending', 'ssl_verified_at' => null]);
@@ -221,30 +221,6 @@ class CentralTenantController extends Controller
         $audit->log('tenant.custom_domain_removed', 'Custom domain removed from cPanel and the tenant.', tenantId: (string) $tenant->getTenantKey(), context: ['domain' => $domainName], request: $request);
 
         return back()->with('status', "Custom domain {$domainName} was removed.");
-    }
-
-    public function retry(Request $request, Tenant $tenant, ProvisionTenant $provision, CentralAuditLogger $audit): RedirectResponse
-    {
-        abort_unless($tenant->provisioning_status === 'failed', 409);
-        $request->merge(['admin_email' => strtolower(trim((string) $request->input('admin_email')))]);
-        $validated = $request->validate([
-            'admin_name' => ['required', 'string', 'max:120'],
-            'admin_email' => ['required', 'email', 'max:255'],
-            'admin_password' => ['required', 'string', Password::default(), 'confirmed'],
-        ]);
-
-        try {
-            $provision->handle((string) $tenant->getTenantKey(), (string) ($tenant->name ?: $tenant->getTenantKey()), $validated['admin_name'], $validated['admin_email'], $validated['admin_password']);
-        } catch (Throwable $e) {
-            report($e);
-            $audit->log('tenant.provisioning_retry_failed', 'Tenant provisioning retry failed.', tenantId: (string) $tenant->getTenantKey(), context: ['error' => $e->getMessage()], request: $request);
-
-            return back()->withErrors(['provisioning' => $e->getMessage()]);
-        }
-
-        $audit->log('tenant.provisioning_retried', 'Tenant provisioning retry completed successfully.', tenantId: (string) $tenant->getTenantKey(), request: $request);
-
-        return redirect()->route('central.tenants.show', $tenant)->with('status', 'Tenant provisioning completed.');
     }
 
     private function provisioningMessage(string $status): string

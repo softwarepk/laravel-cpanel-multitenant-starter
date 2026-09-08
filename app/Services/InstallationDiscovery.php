@@ -19,23 +19,23 @@ class InstallationDiscovery
         $httpsUrl = 'https://'.$host;
 
         $defaults = [
-            'app_name' => $existing['APP_NAME'] ?? 'Laravel cPanel Multi-Tenant Starter',
-            'app_url' => $existing['APP_URL'] ?? $httpsUrl,
-            'central_domain' => $existing['CENTRAL_DOMAINS'] ?? $host,
-            'platform_domain' => $existing['TENANT_PLATFORM_DOMAIN'] ?? $host,
-            'document_root' => $existing['TENANT_PLATFORM_DOCUMENT_ROOT'] ?? $documentRoot,
-            'custom_domain_dns_target' => $existing['CUSTOM_DOMAIN_DNS_TARGET'] ?? $host,
-            'cpanel_host' => $existing['CPANEL_API_HOST'] ?? $serverHost,
-            'cpanel_port' => (int) ($existing['CPANEL_API_PORT'] ?? 2083),
-            'cpanel_user' => $existing['CPANEL_API_USER'] ?? $accountUser,
-            'db_host' => $existing['DB_HOST'] ?? 'localhost',
-            'db_port' => (int) ($existing['DB_PORT'] ?? 3306),
-            'central_db_name' => $existing['DB_DATABASE'] ?? $this->prefixedName($accountUser, 'mtcentral'),
-            'central_db_user' => $existing['DB_USERNAME'] ?? $this->prefixedName($accountUser, 'mtctl'),
-            'tenant_db_host' => $existing['TENANT_DB_HOST'] ?? 'localhost',
-            'tenant_db_port' => (int) ($existing['TENANT_DB_PORT'] ?? 3306),
-            'tenant_db_user' => $existing['TENANT_DB_USERNAME'] ?? $this->prefixedName($accountUser, 'mtapp'),
-            'tenant_db_prefix' => $existing['CPANEL_TENANT_DB_PREFIX'] ?? $this->prefixedName($accountUser, 'mtt_'),
+            'app_name' => $this->existingOrDefault($existing, 'APP_NAME', 'Laravel cPanel Multi-Tenant Starter'),
+            'app_url' => $this->existingOrDefault($existing, 'APP_URL', $httpsUrl, ['http://localhost']),
+            'central_domain' => $this->existingOrDefault($existing, 'CENTRAL_DOMAINS', $host, ['127.0.0.1,localhost', 'localhost']),
+            'platform_domain' => $this->existingOrDefault($existing, 'TENANT_PLATFORM_DOMAIN', $host, ['tenants.example.com']),
+            'document_root' => $this->existingOrDefault($existing, 'TENANT_PLATFORM_DOCUMENT_ROOT', $documentRoot),
+            'custom_domain_dns_target' => $this->existingOrDefault($existing, 'CUSTOM_DOMAIN_DNS_TARGET', $host),
+            'cpanel_host' => $this->existingOrDefault($existing, 'CPANEL_API_HOST', $serverHost),
+            'cpanel_port' => $this->existingIntOrDefault($existing, 'CPANEL_API_PORT', 2083),
+            'cpanel_user' => $this->existingOrDefault($existing, 'CPANEL_API_USER', $accountUser),
+            'db_host' => $this->existingOrDefault($existing, 'DB_HOST', 'localhost'),
+            'db_port' => $this->existingIntOrDefault($existing, 'DB_PORT', 3306),
+            'central_db_name' => $this->existingOrDefault($existing, 'DB_DATABASE', $this->prefixedName($accountUser, 'mtcentral'), ['database/database.sqlite']),
+            'central_db_user' => $this->existingOrDefault($existing, 'DB_USERNAME', $this->prefixedName($accountUser, 'mtctl')),
+            'tenant_db_host' => $this->existingOrDefault($existing, 'TENANT_DB_HOST', 'localhost'),
+            'tenant_db_port' => $this->existingIntOrDefault($existing, 'TENANT_DB_PORT', 3306),
+            'tenant_db_user' => $this->existingOrDefault($existing, 'TENANT_DB_USERNAME', $this->prefixedName($accountUser, 'mtapp')),
+            'tenant_db_prefix' => $this->existingOrDefault($existing, 'CPANEL_TENANT_DB_PREFIX', $this->prefixedName($accountUser, 'mtt_')),
             'registration' => false,
             'verification' => true,
         ];
@@ -98,6 +98,33 @@ class InstallationDiscovery
         $accountUser = preg_replace('/[^A-Za-z0-9_]/', '', $accountUser) ?: '';
 
         return $accountUser !== '' ? $accountUser.'_'.$suffix : $suffix;
+    }
+
+    /**
+     * Fresh deployments commonly start by copying .env.example. Treat blank
+     * values and known development placeholders as absent so the installer can
+     * still discover deployment-specific defaults.
+     *
+     * @param  array<string, string>  $existing
+     * @param  list<string>  $placeholders
+     */
+    private function existingOrDefault(array $existing, string $key, string $default, array $placeholders = []): string
+    {
+        $value = trim($existing[$key] ?? '');
+
+        if ($value === '' || in_array($value, $placeholders, true)) {
+            return $default;
+        }
+
+        return $value;
+    }
+
+    /** @param array<string, string> $existing */
+    private function existingIntOrDefault(array $existing, string $key, int $default): int
+    {
+        $value = trim($existing[$key] ?? '');
+
+        return $value !== '' && ctype_digit($value) ? (int) $value : $default;
     }
 
     /** @return array{label:string,ok:bool,detail:string} */

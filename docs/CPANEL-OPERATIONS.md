@@ -2,7 +2,7 @@
 
 ## Scope
 
-The starter assumes a conventional Laravel deployment on a cPanel/Linux account. It does not require containers, Kubernetes, Redis, Horizon, or a separate application platform.
+The starter assumes a conventional Laravel deployment on a cPanel/Linux account. It does not require containers, Kubernetes, Redis, Horizon, a queue worker, or a separate application platform.
 
 The production provisioning layer can automate tenant database and domain setup through cPanel APIs. Keep cPanel credentials scoped as narrowly as practical.
 
@@ -24,7 +24,7 @@ The exact keys are defined by `.env.example` and `config/central.php`.
 
 `CPANEL_API_USER` is the cPanel account/API identity. `TENANT_DB_USERNAME` is the MySQL/MariaDB user Laravel uses for tenant connections and the same user to which cPanel provisioning grants privileges. There is intentionally no second independently configured cPanel DB-user setting.
 
-Database sessions and database cache are intentional multi-tenant defaults: tenant resolution occurs before session/cache access, so those records follow the active tenant database. The database queue remains central and carries tenant context in the queued payload. Database queue jobs wait for surrounding transactions to commit.
+Database sessions and database cache are intentional multi-tenant defaults: tenant resolution occurs before session/cache access, so those records follow the active tenant database. The starter defaults to `QUEUE_CONNECTION=sync`; no external queue worker is required for the built-in tenant lifecycle.
 
 HTTPS enforcement defaults on in production through `APP_ENV=production`. Do not set `FORCE_HTTPS=false` unless the deployment intentionally terminates/enforces HTTPS elsewhere and the application-level redirect is not desired.
 
@@ -81,18 +81,26 @@ Point the cPanel domain document root at:
 
 Then open the application over HTTPS. A fresh production clone redirects to `/install`.
 
-The first-run page discovers and pre-fills the hostname, Laravel paths, likely cPanel account/server values, PHP/extensions, writability, document-root state, and conventional database names. The operator supplies the cPanel API token, confirms database credentials/naming, and creates the first Control Center administrator.
+The installer is a guided flow. It first checks the runtime and paths, then explicitly verifies the cPanel connection and database configuration before the final installation changes resources. Existing database users are never silently assigned a new password; their submitted credentials must authenticate. A new installation will not reuse a non-empty central database unless it is the database recorded for the interrupted installation being resumed.
 
-On submission the installer verifies that the cPanel account manages the current hostname and tenant platform root, confirms the document root, constrains database connections to localhost or the MySQL/MariaDB host reported by cPanel, creates/verifies the central database and database users, writes the production `.env`, runs central migrations, creates the first central administrator, and locks itself.
+On final submission the installer verifies the cPanel account again, creates/verifies the central database and database users, writes the production `.env`, runs central migrations, creates the first central administrator, and locks itself.
 
 The installer is resumable if an external cPanel/database/filesystem step fails. Existing resources are verified and reused where safe rather than pretending cPanel, MySQL, and the filesystem form one transaction.
 
-The installer UI is self-contained and does not depend on Vite assets. Build the normal application assets before or immediately after first-run configuration:
+The installer UI itself is self-contained and does not depend on Vite assets. Normal application pages do. Before handoff, confirm that the frontend build exists:
+
+```text
+public/build/manifest.json
+```
+
+You may build it on cPanel:
 
 ```bash
 npm ci
 npm run build
 ```
+
+or build elsewhere and deploy the resulting `public/build/` directory. Node.js is not required at runtime once those generated assets are present.
 
 After installation, continue at `/central/login` and provision a disposable tenant for the real cPanel staging exercise.
 
@@ -112,9 +120,11 @@ Use the Control Center. The provisioning action will:
 6. verify trusted HTTPS;
 7. activate the tenant when ready.
 
+Provisioning runs synchronously in the Control Center request. Keep the browser page open while the operation is running. The operation records each provisioning stage, and failures leave the tenant in a clear failed state that can be retried without blindly recreating resources.
+
 If HTTPS is not ready yet, the tenant stays in an HTTPS-pending provisioning state. Recheck after AutoSSL/certificate issuance completes.
 
-Provisioning remains synchronous by default to keep the starter simple. A derived application may queue `ProvisionTenant` if its hosting limits make long provisioning requests impractical.
+A derived application with longer-running workloads may deliberately move lifecycle operations to a queue later, but that is an opt-in deployment decision rather than a requirement of this starter.
 
 ## Transient cPanel behavior
 
@@ -148,17 +158,11 @@ php artisan optimize
 
 Run tenant migrations on every deployment that changes tenant schema. A successful central migration alone does not update tenant databases.
 
-## Queue workers
+## Optional queues
 
-`QUEUE_CONNECTION=database` is the default. Queue rows live in the central database, while tenant-aware jobs carry the originating tenant ID and restore tenant context when processed.
+The starter itself uses `QUEUE_CONNECTION=sync` and requires no worker. Laravel's database and other queue drivers remain available for applications that later choose to introduce asynchronous jobs.
 
-If cPanel provides a managed long-running process, run a normal Laravel `queue:work` worker and restart it after code/config deployments. On hosts without a persistent worker facility, a cron entry may run:
-
-```bash
-php artisan queue:work --stop-when-empty --tries=3
-```
-
-If a particular application deliberately uses only synchronous jobs, it may set `QUEUE_CONNECTION=sync`, but that is an application-specific override rather than the multi-tenant starter default.
+If a derived application opts into an asynchronous queue, that application must also choose an appropriate worker strategy for its hosting environment. Do not assume shared cPanel supports a particular cron frequency or persistent process model.
 
 ## Backups
 
@@ -179,7 +183,7 @@ Use suspension when access must be stopped temporarily. Do not delete a tenant m
 
 ## Permanent deletion
 
-Tenant deletion is deliberately guarded and requires the tenant to be suspended first, exact tenant-ID confirmation, and the current central administrator password.
+Tenant deletion is deliberately guarded. An active tenant must first be suspended. The operator then supplies the exact tenant ID and the current Control Center administrator password. A tenant whose provisioning failed may also be cleaned up directly because it is not an operational tenant.
 
 The cleanup action attempts to remove:
 
@@ -190,6 +194,8 @@ The cleanup action attempts to remove:
 - the central tenant record.
 
 External infrastructure does not form one transaction. A cPanel/filesystem/database cleanup failure therefore does not automatically block central tenant deletion. Instead the central database retains a `tenant_deletion_records` snapshot containing the original tenant/database/domain identifiers and each cleanup result/error. The Control Center displays this under **Central Activity** for manual follow-up.
+
+A tenant ID/database identity may be reused only after the latest deletion completed cleanly. Failed, incomplete, or warning-bearing cleanup continues to block reuse so residual infrastructure cannot be accidentally attached to a later tenant.
 
 If the central tenant record itself cannot be deleted, the operation reports failure rather than claiming that deletion completed.
 

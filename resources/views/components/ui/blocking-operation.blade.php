@@ -4,23 +4,40 @@
     'eyebrow' => 'Working',
     'title' => 'Please wait',
     'message' => 'This operation may take a few moments.',
+    'detail' => 'Keep this page open until the operation completes.',
 ])
 
 <div
     id="{{ $id }}"
     @if($scope) data-operation-scope="{{ $scope }}" @endif
-    class="hidden mb-6 rounded-2xl border border-blue-200 bg-blue-50/70 p-5 shadow-sm dark:border-blue-900 dark:bg-blue-950/20"
+    class="fixed inset-0 z-[100] hidden overflow-y-auto bg-zinc-950/45 p-4 backdrop-blur-sm sm:p-6"
     role="status"
     aria-live="polite"
     aria-hidden="true"
+    tabindex="-1"
 >
-    <div data-operation-eyebrow class="text-xs font-semibold uppercase tracking-[0.14em] text-blue-600">{{ $eyebrow }}</div>
-    <div data-operation-title class="mt-1 text-xl font-semibold">{{ $title }}</div>
-    <div data-operation-message class="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">{{ $message }}</div>
-    <div class="mt-5 h-2 overflow-hidden rounded-full bg-white/80 dark:bg-zinc-800" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="5">
-        <div data-operation-bar class="h-full w-[5%] rounded-full bg-blue-600 transition-all duration-500"></div>
+    <div class="mx-auto flex min-h-full max-w-xl items-center justify-center">
+        <div class="w-full rounded-3xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 sm:p-7">
+            <div class="flex items-start gap-4">
+                <div data-operation-spinner class="mt-1 flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
+                    <svg class="size-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3"></circle>
+                        <path class="opacity-90" fill="currentColor" d="M21 12a9 9 0 0 0-9-9v3a6 6 0 0 1 6 6h3Z"></path>
+                    </svg>
+                </div>
+                <div class="min-w-0 flex-1">
+                    <div data-operation-eyebrow class="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600 dark:text-blue-300">{{ $eyebrow }}</div>
+                    <div data-operation-title class="mt-1 text-2xl font-semibold tracking-tight">{{ $title }}</div>
+                    <div data-operation-message class="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">{{ $message }}</div>
+                </div>
+            </div>
+
+            <div class="mt-6 h-2.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="5">
+                <div data-operation-bar class="h-full w-[5%] rounded-full bg-blue-600 transition-all duration-500"></div>
+            </div>
+            <div data-operation-detail class="mt-3 text-xs leading-5 text-zinc-500">{{ $detail }}</div>
+        </div>
     </div>
-    <div data-operation-detail class="mt-3 text-xs text-zinc-500">Actions in this workspace are temporarily disabled. You can continue using other areas of the Control Center.</div>
 </div>
 
 @once
@@ -29,9 +46,35 @@
             (() => {
                 if (window.ControlCenterOperation) return;
 
-                const activeScopes = new Map();
+                const active = new Map();
+                let previousOverflow = '';
+
                 const panelFor = (id) => document.getElementById(id);
                 const clampProgress = (value) => Math.max(0, Math.min(100, Number(value) || 0));
+                const hasActiveOperation = () => active.size > 0;
+                const hasLeaveWarning = () => Array.from(active.values()).some((entry) => entry.warn !== false);
+
+                const beforeUnload = (event) => {
+                    if (!hasLeaveWarning()) return;
+                    event.preventDefault();
+                    event.returnValue = '';
+                };
+
+                window.addEventListener('beforeunload', beforeUnload);
+
+                document.addEventListener('keydown', (event) => {
+                    if (!hasActiveOperation()) return;
+                    if (event.key === 'Tab' || event.key === 'Escape') event.preventDefault();
+                }, true);
+
+                document.addEventListener('click', (event) => {
+                    if (!hasActiveOperation()) return;
+                    const current = Array.from(active.keys()).map(panelFor).find((panel) => panel && !panel.classList.contains('hidden'));
+                    if (current && !current.contains(event.target)) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }
+                }, true);
 
                 const update = (id, data = {}) => {
                     const panel = panelFor(id);
@@ -49,6 +92,13 @@
                         if (bar) bar.style.width = `${progress}%`;
                         if (progressbar) progressbar.setAttribute('aria-valuenow', String(progress));
                     }
+
+                    const spinner = panel.querySelector('[data-operation-spinner]');
+                    if (spinner && data.complete !== undefined) spinner.classList.toggle('opacity-40', Boolean(data.complete));
+
+                    if (data.complete === true && active.has(id)) {
+                        active.get(id).warn = false;
+                    }
                 };
 
                 const begin = (id, data = {}) => {
@@ -60,12 +110,18 @@
                     if (scope) {
                         scope.inert = true;
                         scope.classList.add('opacity-60');
-                        activeScopes.set(id, scope);
                     }
 
+                    if (!hasActiveOperation()) {
+                        previousOverflow = document.documentElement.style.overflow;
+                        document.documentElement.style.overflow = 'hidden';
+                    }
+
+                    active.set(id, {scope, warn: true});
                     panel.classList.remove('hidden');
                     panel.setAttribute('aria-hidden', 'false');
                     update(id, data);
+                    panel.focus({preventScroll: true});
                 };
 
                 const end = (id) => {
@@ -75,15 +131,19 @@
                         panel.setAttribute('aria-hidden', 'true');
                     }
 
-                    const scope = activeScopes.get(id);
-                    if (scope) {
-                        scope.inert = false;
-                        scope.classList.remove('opacity-60');
-                        activeScopes.delete(id);
+                    const entry = active.get(id);
+                    if (entry?.scope) {
+                        entry.scope.inert = false;
+                        entry.scope.classList.remove('opacity-60');
+                    }
+                    active.delete(id);
+
+                    if (!hasActiveOperation()) {
+                        document.documentElement.style.overflow = previousOverflow;
                     }
                 };
 
-                window.ControlCenterOperation = { begin, update, end };
+                window.ControlCenterOperation = {begin, update, end, active: hasActiveOperation};
             })();
         </script>
     @endpush
