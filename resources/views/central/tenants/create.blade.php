@@ -42,51 +42,15 @@
                 <h2 class="font-semibold">Initial tenant administrator</h2>
                 <p class="mt-1 text-sm text-zinc-500">Created inside this tenant's own database.</p>
                 <div class="mt-5 grid gap-5 sm:grid-cols-2">
-                    <div>
-                        <label class="text-sm font-medium" for="admin_name">Name</label>
-                        <input id="admin_name" name="admin_name" value="{{ old('admin_name') }}" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950">
-                    </div>
-                    <div>
-                        <label class="text-sm font-medium" for="admin_email">Email</label>
-                        <input id="admin_email" type="email" name="admin_email" value="{{ old('admin_email') }}" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950">
-                    </div>
-                    <div>
-                        <label class="text-sm font-medium" for="admin_password">Temporary password</label>
-                        <input id="admin_password" type="password" name="admin_password" autocomplete="new-password" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950">
-                        <p class="mt-2 text-xs text-zinc-500">Password must be {{ implode(', ', $passwordRequirements) }}.</p>
-                    </div>
-                    <div>
-                        <label class="text-sm font-medium" for="admin_password_confirmation">Confirm password</label>
-                        <input id="admin_password_confirmation" type="password" name="admin_password_confirmation" autocomplete="new-password" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950">
-                    </div>
+                    <div><label class="text-sm font-medium" for="admin_name">Name</label><input id="admin_name" name="admin_name" value="{{ old('admin_name') }}" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950"></div>
+                    <div><label class="text-sm font-medium" for="admin_email">Email</label><input id="admin_email" type="email" name="admin_email" value="{{ old('admin_email') }}" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950"></div>
+                    <div><label class="text-sm font-medium" for="admin_password">Temporary password</label><input id="admin_password" type="password" name="admin_password" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950"><p class="mt-2 text-xs text-zinc-500">Password must be {{ implode(', ', $passwordRequirements) }}.</p></div>
+                    <div><label class="text-sm font-medium" for="admin_password_confirmation">Confirm password</label><input id="admin_password_confirmation" type="password" name="admin_password_confirmation" required class="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-950"></div>
                 </div>
             </section>
-
-            <div class="flex justify-end gap-3">
-                <a href="{{ route('central.tenants.index') }}" class="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold dark:border-zinc-700">Cancel</a>
-                <button id="provision-submit" type="submit" class="rounded-xl bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-zinc-950">Provision tenant</button>
-            </div>
+            <div class="flex justify-end gap-3"><a href="{{ route('central.tenants.index') }}" class="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold dark:border-zinc-700">Cancel</a><button id="provision-submit" class="rounded-xl bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-zinc-950">Provision tenant</button></div>
         </div>
-
-        <aside class="space-y-4">
-            <div class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                <h3 class="font-semibold">Permanent platform URL</h3>
-                <p class="mt-2 text-sm leading-6 text-zinc-500">Every tenant gets a permanent hostname. Custom domains are optional aliases.</p>
-                <div class="mt-4 rounded-xl bg-zinc-50 p-3 font-mono text-xs dark:bg-zinc-950">&lt;tenant-id&gt;.{{ $platformDomain ?: 'platform-domain-not-configured' }}</div>
-            </div>
-            <div class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                <h3 class="font-semibold">Provisioning sequence</h3>
-                <ol class="mt-4 list-decimal space-y-2 pl-5 text-sm text-zinc-500">
-                    <li>Reserve tenant identity</li>
-                    <li>Create platform hostname</li>
-                    <li>Create isolated database</li>
-                    <li>Run tenant migrations</li>
-                    <li>Create tenant administrator</li>
-                    <li>Confirm trusted HTTPS</li>
-                    <li>Activate tenant</li>
-                </ol>
-            </div>
-        </aside>
+        <aside class="space-y-4"><div class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60"><h3 class="font-semibold">Permanent platform URL</h3><p class="mt-2 text-sm leading-6 text-zinc-500">Every tenant gets a permanent hostname. Custom domains are optional aliases.</p><div class="mt-4 rounded-xl bg-zinc-50 p-3 font-mono text-xs dark:bg-zinc-950">&lt;tenant-id&gt;.{{ $platformDomain ?: 'platform-domain-not-configured' }}</div></div><div class="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60"><h3 class="font-semibold">Provisioning sequence</h3><ol class="mt-4 list-decimal space-y-2 pl-5 text-sm text-zinc-500"><li>Reserve tenant identity</li><li>Create platform hostname</li><li>Create isolated database</li><li>Run tenant migrations</li><li>Create tenant administrator</li><li>Confirm trusted HTTPS</li><li>Activate tenant</li></ol></div></aside>
     </form>
 </div>
 @endsection
@@ -95,7 +59,7 @@
 <script>
 (() => {
     const form = document.getElementById('tenant-provision-form');
-    if (!form || !window.ControlCenterOperation) return;
+    if (!form) return;
 
     const operationId = 'tenant-provision-progress';
     const errors = document.getElementById('provision-errors');
@@ -110,6 +74,8 @@
     let pollTimer = null;
     let operationActive = false;
 
+    const operation = () => window.ControlCenterOperation;
+
     const stopPolling = () => {
         if (pollTimer) window.clearTimeout(pollTimer);
         pollTimer = null;
@@ -119,7 +85,7 @@
         const stage = data.provisioning_status || 'starting';
         const ready = stage === 'active';
         const failed = stage === 'failed';
-        window.ControlCenterOperation.update(operationId, {
+        operation()?.update(operationId, {
             eyebrow: ready ? 'Tenant ready' : failed ? 'Provisioning failed' : 'Tenant provisioning',
             title: ready ? 'Tenant is ready' : failed ? 'Provisioning failed' : 'Provisioning tenant',
             message: data.message || (stage === 'starting' ? 'Reserving tenant identity…' : 'Provisioning is in progress…'),
@@ -136,7 +102,7 @@
     const finishWithError = (data) => {
         operationActive = false;
         stopPolling();
-        window.ControlCenterOperation.end(operationId);
+        operation()?.end(operationId);
         const text = data?.errors ? Object.values(data.errors).flat().join(' ') : (data?.message || 'Provisioning failed.');
         errors.textContent = text;
         errors.classList.remove('hidden');
@@ -204,7 +170,7 @@
         tenantId = form.querySelector('[name=id]').value.trim().toLowerCase();
         operationActive = true;
 
-        window.ControlCenterOperation.begin(operationId, {
+        operation()?.begin(operationId, {
             eyebrow:'Tenant provisioning',
             title:'Provisioning tenant',
             message:'Reserving tenant identity…',
