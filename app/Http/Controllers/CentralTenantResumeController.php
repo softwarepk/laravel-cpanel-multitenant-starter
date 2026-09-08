@@ -22,6 +22,10 @@ class CentralTenantResumeController extends Controller
 
         abort_unless($resumable, 409, 'This tenant is not in a provisioning state that can be resumed.');
 
+        if ($stage !== 'failed' && $this->operationRecentlyAdvanced($tenant)) {
+            abort(409, 'Provisioning has reported progress recently and may still be running. Use Check status now and only continue provisioning after the saved operation has stopped advancing for five minutes.');
+        }
+
         $latestDeletion = TenantDeletionRecord::query()
             ->where('tenant_id', (string) $tenant->getTenantKey())
             ->latest('id')
@@ -92,5 +96,16 @@ class CentralTenantResumeController extends Controller
         }
 
         return redirect($redirect)->with('status', $message);
+    }
+
+    private function operationRecentlyAdvanced(Tenant $tenant): bool
+    {
+        if ($tenant->updated_at === null) {
+            return false;
+        }
+
+        $seconds = max(1, (int) config('central.lifecycle.operation_stale_after_seconds', 300));
+
+        return $tenant->updated_at->gt(now()->subSeconds($seconds));
     }
 }
