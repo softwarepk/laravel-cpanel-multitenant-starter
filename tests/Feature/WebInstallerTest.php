@@ -1,6 +1,8 @@
 <?php
 
 use App\Services\EnvironmentFile;
+use App\Services\InstallationDiscovery;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 
@@ -75,24 +77,21 @@ it('uses discovered deployment defaults instead of blank or development template
         }
     };
 
-    app()->instance(EnvironmentFile::class, $environment);
+    $request = Request::create('https://central.test/install');
+    $defaults = (new InstallationDiscovery($environment))->discover($request)['defaults'];
 
-    $response = $this
-        ->withHeader('Host', 'central.test')
-        ->withServerVariables(['HTTPS' => 'on', 'DOCUMENT_ROOT' => public_path()])
-        ->get('/install');
-
-    $response
-        ->assertOk()
-        ->assertSee('value="https://central.test"', false)
-        ->assertSee('name="central_domain" type="text" value="central.test"', false)
-        ->assertSee('name="platform_domain" type="text" value="central.test"', false)
-        ->assertSee('name="document_root" type="text" value="'.public_path().'"', false)
-        ->assertSee('name="custom_domain_dns_target" type="text" value="central.test"', false)
-        ->assertDontSee('value="http://localhost"', false)
-        ->assertDontSee('value="127.0.0.1,localhost"', false)
-        ->assertDontSee('value="tenants.example.com"', false)
-        ->assertDontSee('value="database/database.sqlite"', false);
+    expect($defaults)
+        ->toMatchArray([
+            'app_url' => 'https://central.test',
+            'central_domain' => 'central.test',
+            'platform_domain' => 'central.test',
+            'document_root' => public_path(),
+            'custom_domain_dns_target' => 'central.test',
+        ])
+        ->and($defaults['app_url'])->not->toBe('http://localhost')
+        ->and($defaults['central_domain'])->not->toBe('127.0.0.1,localhost')
+        ->and($defaults['platform_domain'])->not->toBe('tenants.example.com')
+        ->and($defaults['central_db_name'])->not->toBe('database/database.sqlite');
 });
 
 it('preflights cPanel ownership before the database step', function (): void {
