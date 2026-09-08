@@ -100,10 +100,6 @@ class CentralTenantResumeController extends Controller
 
     private function operationRecentlyAdvanced(Tenant $tenant): bool
     {
-        if ($tenant->updated_at === null) {
-            return false;
-        }
-
         $seconds = max(1, (int) config('central.lifecycle.operation_stale_after_seconds', 300));
 
         return $tenant->updated_at->gt(now()->subSeconds($seconds));
