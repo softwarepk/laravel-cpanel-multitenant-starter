@@ -7,10 +7,10 @@ use App\Http\Controllers\CentralTenantController;
 use App\Http\Controllers\CentralTenantPagesController;
 use App\Http\Controllers\TenantDeletionStatusController;
 use App\Models\CentralAuditLog;
-use App\Models\Domain;
 use App\Models\TenantDeletionRecord;
 use App\Services\CentralAuditLogger;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 it('blocks every custom-domain mutation while deletion cleanup is unresolved', function (): void {
@@ -102,10 +102,12 @@ it('blocks every custom-domain mutation while deletion cleanup is unresolved', f
         $audit,
     ));
 
+    $central = DB::connection((string) config('tenancy.database.central_connection'));
+
     expect($provisioner->called)->toBeFalse()
         ->and($verifier->called)->toBeFalse()
         ->and($deprovisioner->called)->toBeFalse()
-        ->and(Domain::on(config('tenancy.database.central_connection'))
+        ->and($central->table('domains')
             ->where('tenant_id', (string) $tenant->getTenantKey())
             ->where('domain', 'new.example.test')
             ->exists())->toBeFalse()
@@ -133,8 +135,10 @@ it('still allows central domain management for a clean suspended tenant', functi
         app(CentralAuditLogger::class),
     );
 
+    $central = DB::connection((string) config('tenancy.database.central_connection'));
+
     expect($provisioner->called)->toBeTrue()
-        ->and(Domain::on(config('tenancy.database.central_connection'))
+        ->and($central->table('domains')
             ->where('tenant_id', (string) $tenant->getTenantKey())
             ->where('domain', 'portal.example.test')
             ->exists())->toBeTrue();
